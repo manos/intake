@@ -130,8 +130,18 @@
     const next = await active.read();
     if (active === journal) store = next;
   }
+  let syncError = $state("");
+  function syncPending() {
+    if (!auth) {
+      username = profile?.username ?? "";
+      modal = "login";
+      return;
+    }
+    void sync();
+  }
   async function sync() {
     if (!journal || !auth || busy) return;
+    syncError = "";
     busy = true;
     const active = journal,
       credential = auth;
@@ -139,9 +149,21 @@
       await synchronize(active, credential);
       if (active !== journal || credential !== auth) return;
       await refresh();
-      if (active === journal) status = "Synced just now";
+      if (active === journal)
+        status = store.queue.length
+          ? "Some changes still need attention."
+          : "Synced just now";
     } catch (e) {
-      if (active === journal) status = (e as Error).message;
+      if (active === journal) {
+        await refresh();
+        if (active !== journal) return;
+        syncError =
+          e instanceof TypeError
+            ? "Could not reach the server."
+            : (e as Error).message;
+        if (syncError === "Sign in again to sync.") auth = "";
+        status = syncError;
+      }
     } finally {
       busy = false;
     }
@@ -206,6 +228,7 @@
       backdate = false;
       selected = "";
       store = { records: [], queue: [], cursor: 0 };
+      syncError = "";
       profile = p;
       auth = credential;
       password = "";
@@ -623,13 +646,40 @@
       ></button
     >
   </header>
-  <div class="today-strip">
-    <span class="eyebrow">TODAY SO FAR</span>
-    <div class="pinned-totals">
-      {#each items.filter((i) => !i.data.archived || count(i) > 0) as item}<span
-          ><i style={`background:${item.data.color}`}></i><b>{count(item)}</b>
-          {item.data.unit}<small>{item.data.name}</small></span
-        >{:else}<span class="muted">No items</span>{/each}
+  <div class="sync-header">
+    {#if store.queue.length > 0}<section
+        class="pending-banner"
+        aria-label="Pending changes"
+      >
+        <div class="pending-copy">
+          <strong
+            >{store.queue.length} pending {store.queue.length === 1
+              ? "change"
+              : "changes"}</strong
+          ><span role="status" aria-live="polite"
+            >{busy
+              ? "Syncing…"
+              : syncError ||
+                (!auth
+                  ? "Sign in to sync."
+                  : conflicts.length
+                    ? `${conflicts.length} require review.`
+                    : "Saved on this device.")}</span
+          >
+        </div>
+        <button class="sync-now" disabled={busy} onclick={syncPending}
+          >{busy ? "Syncing…" : "Sync now"}<span aria-hidden="true">↻</span
+          ></button
+        >
+      </section>{/if}
+    <div class="today-strip">
+      <span class="eyebrow">TODAY SO FAR</span>
+      <div class="pinned-totals">
+        {#each items.filter((i) => !i.data.archived || count(i) > 0) as item}<span
+            ><i style={`background:${item.data.color}`}></i><b>{count(item)}</b>
+            {item.data.unit}<small>{item.data.name}</small></span
+          >{:else}<span class="muted">No items</span>{/each}
+      </div>
     </div>
   </div>
   <main>
