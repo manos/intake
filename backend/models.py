@@ -38,6 +38,16 @@ def valid_timezone(value):
     return value
 
 
+USERNAME_PATTERN = r"[A-Za-z0-9_.-]{1,64}"
+
+
+class Signup(Strict):
+    username: str = Field(min_length=1, max_length=64, pattern=rf"^{USERNAME_PATTERN}$")
+    password: str = Field(min_length=12, max_length=1024, repr=False)
+    timezone: str = Field(max_length=100)
+    _timezone = field_validator("timezone")(valid_timezone)
+
+
 class Settings(Strict):
     timezone: str = Field(max_length=100)
     day_start: int = Field(ge=0, le=23)

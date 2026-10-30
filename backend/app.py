@@ -7,6 +7,7 @@ import hmac
 import io
 import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -17,8 +18,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import ValidationError
 
-from backend.db import connect, hash_password, initialize
-from backend.models import MODELS, Operation, Settings, Sync
+from backend.db import connect, hash_password, initialize, insert_user
+from backend.models import MODELS, Operation, Settings, Signup, Sync
 
 MAX_BODY = 4 * 1024 * 1024
 
@@ -40,6 +41,7 @@ def record(row):
 def create_app(config_dir=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db = initialize(config_dir or os.environ.get("CONFIG_DIR", "/config"))
+    allow_signup = os.environ.get("ALLOW_SIGNUP", "").lower() == "true"
     public_origin = os.environ.get("PUBLIC_ORIGIN", "").rstrip("/")
     if public_origin:
         parsed = urlsplit(public_origin)
@@ -171,6 +173,65 @@ def create_app(config_dir=None):
         with connect(app.state.db) as db:
             db.execute("SELECT 1")
         return {"status": "ok"}
+
+    def signup_attempt(request: Request):
+        # Independent persisted address namespace: account creation attempts must
+        # neither consume nor clear the existing sign-in throttle.
+        host = request.client.host if request.client else "unknown"
+        key = "signup:" + hashlib.sha256(host.encode()).hexdigest()
+        with connect(app.state.db) as db:
+            db.execute("BEGIN IMMEDIATE")
+            # Read time after acquiring the lock: a concurrent request may have
+            # written an unblocked timestamp while this request was waiting.
+            now = time.time()
+            bucket = db.execute("SELECT * FROM throttle WHERE key=?", (key,)).fetchone()
+            if bucket and bucket["blocked_until"] > now:
+                raise HTTPException(
+                    429,
+                    "Too many registration attempts",
+                    headers={
+                        "Retry-After": str(max(1, int(bucket["blocked_until"] - now)))
+                    },
+                )
+            # A quiet half hour starts a new allowance. Successful submissions
+            # count too, so opt-in registration cannot create unbounded users.
+            attempts = (
+                bucket["failures"]
+                if bucket and bucket["blocked_until"] > now - 1800
+                else 0
+            )
+            attempts += 1
+            cooldown = min(900, 2 ** min(attempts - 5, 10)) if attempts >= 6 else 0
+            db.execute(
+                "INSERT OR REPLACE INTO throttle VALUES(?,?,?)",
+                (key, attempts, now + cooldown),
+            )
+
+    registration_attempt = Depends(signup_attempt)
+
+    @app.get("/api/registration")
+    def registration():
+        with connect(app.state.db) as db:
+            first_run = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
+        return {"allowed": first_run or allow_signup, "first_run": first_run}
+
+    @app.post("/api/signup", status_code=201)
+    def signup(payload: Signup, attempt=registration_attempt):
+        with connect(app.state.db) as db:
+            # The lock covers bootstrap admission and insertion together. A
+            # cached registration response never authorizes a later write.
+            db.execute("BEGIN IMMEDIATE")
+            if (
+                not allow_signup
+                and db.execute("SELECT 1 FROM users LIMIT 1").fetchone()
+            ):
+                raise HTTPException(403, "Registration is closed")
+            try:
+                return insert_user(
+                    db, payload.username, payload.password, payload.timezone
+                )
+            except sqlite3.IntegrityError:
+                raise HTTPException(409, "Username is unavailable") from None
 
     @app.get("/api/me")
     def me(account=authenticated_user):
