@@ -53,6 +53,74 @@ export function dayKey(
         .slice(0, 10)
     : date;
 }
+function wallTime(instant: Date, timezone: string) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(instant)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
+}
+export function localTimeOptions(value: string, timezone: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return [];
+  const normalized = value.length === 16 ? `${value}:00` : value;
+  const nominal = Date.parse(`${normalized}Z`);
+  if (!Number.isFinite(nominal)) return [];
+  const offsets = new Set<number>();
+  // Sample both sides of a transition, including half-hour DST changes.
+  for (const hours of [-48, -24, 0, 24, 48]) {
+    const sample = nominal + hours * 3600000;
+    offsets.add(
+      Date.parse(wallTime(new Date(sample), timezone) + "Z") - sample,
+    );
+  }
+  return [...offsets]
+    .map((offset) => ({ instant: nominal - offset, offset }))
+    .filter((c) => wallTime(new Date(c.instant), timezone) === normalized)
+    .sort((a, b) => a.instant - b.instant)
+    .map((c) => {
+      return {
+        timestamp: new Date(c.instant).toISOString(),
+        offset: new Intl.DateTimeFormat("en", {
+          timeZone: timezone,
+          timeZoneName: "longOffset",
+        })
+          .formatToParts(new Date(c.instant))
+          .find((p) => p.type === "timeZoneName")!
+          .value.replace("GMT", "UTC"),
+      };
+    });
+}
+export function entryTimestamp(
+  value: string,
+  timezone: string,
+  original?: string,
+  choice = "",
+) {
+  const candidates = localTimeOptions(value, timezone);
+  if (!candidates.length)
+    throw new Error("That local time does not exist. Choose another time.");
+  if (
+    original &&
+    !choice &&
+    wallTime(new Date(original), timezone).slice(0, value.length) === value
+  )
+    return original;
+  if (choice && candidates.some((c) => c.timestamp === choice)) return choice;
+  if (candidates.length > 1)
+    throw new Error("Choose the time zone offset for this repeated time.");
+  return candidates[0].timestamp;
+}
+
 const request = <T>(req: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);

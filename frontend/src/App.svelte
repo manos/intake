@@ -11,6 +11,8 @@
     snapshot,
     synchronize,
     signupError,
+    entryTimestamp,
+    localTimeOptions,
     type Profile,
     type Row,
     type State,
@@ -41,6 +43,8 @@
     presets = $state(""),
     note = $state(""),
     time = $state(""),
+    timeChoice = $state(""),
+    entryTimezone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone),
     editing: Row | undefined = $state(),
     target: Row | undefined = $state(),
     undo: Row | undefined = $state();
@@ -91,6 +95,14 @@
     ),
   );
   const conflicts = $derived(store.queue.filter((o) => o.blocked));
+  const timeOptions = $derived(
+    modal === "log" ? localTimeOptions(time, entryTimezone) : [],
+  );
+  const timeUnchanged = $derived(
+    modal === "log" &&
+      editing?.entity === "entry" &&
+      time === localTime(new Date(editing.data.occurred_at)),
+  );
   let registrationAllowed = $state(false),
     firstRun = $state(false),
     registrationError = $state(""),
@@ -354,10 +366,45 @@
     amount = entry?.data.quantity ?? item.data.amount;
     note = entry?.data.note ?? "";
     time = localTime(entry ? new Date(entry.data.occurred_at) : new Date());
+    entryTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    timeChoice = "";
     modal = "log";
   }
   async function log(item: Row, qty = item.data.amount, custom = false) {
     const active = journal;
+    if (
+      !custom &&
+      quickTime &&
+      localTimeOptions(
+        quickTime,
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ).length > 1
+    ) {
+      logForm(item);
+      time = quickTime;
+      amount = qty;
+      note = quickNote;
+      return;
+    }
+    let occurredAt: string;
+    try {
+      occurredAt = custom
+        ? entryTimestamp(
+            time,
+            entryTimezone,
+            editing?.data.occurred_at,
+            timeChoice,
+          )
+        : quickTime
+          ? entryTimestamp(
+              quickTime,
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+            )
+          : new Date().toISOString();
+    } catch (e) {
+      error = (e as Error).message;
+      return;
+    }
     const data: Record<string, any> =
       editing && custom
         ? { ...editing.data }
@@ -370,11 +417,7 @@
           };
     Object.assign(data, {
       quantity: String(qty),
-      occurred_at: custom
-        ? new Date(time).toISOString()
-        : quickTime
-          ? new Date(quickTime).toISOString()
-          : new Date().toISOString(),
+      occurred_at: occurredAt,
       note: custom ? note : quickNote,
     });
     const entryId = custom && editing ? editing.id : crypto.randomUUID();
@@ -1289,8 +1332,24 @@
               type="datetime-local"
               required
               bind:value={time}
+              oninput={() => (timeChoice = "")}
             /></label
-          ><label
+          >{#if timeOptions.length > 1}<label
+              >Time zone offset<select
+                aria-label="Time zone offset"
+                bind:value={timeChoice}
+                required={!timeUnchanged}
+              >
+                <option value=""
+                  >{timeUnchanged
+                    ? "Keep original timestamp"
+                    : "Choose offset"}</option
+                >
+                {#each timeOptions as option}<option value={option.timestamp}
+                    >{option.offset}</option
+                  >{/each}
+              </select></label
+            >{/if}<label
             >A note <small>optional</small><textarea
               rows="3"
               maxlength="10000"
