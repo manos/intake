@@ -307,21 +307,27 @@ export async function api(
   return response;
 }
 const running = new Map<string, Promise<void>>();
+function eligibleOperations(queue: Op[]) {
+  const seen = new Set<string>();
+  return queue.filter((op) => {
+    const key = op.entity + op.record_id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return !op.blocked;
+  });
+}
 export function synchronize(journal: Journal, auth: string) {
+  if (auth.startsWith("session:") && auth !== `session:${journal.account}`)
+    return Promise.reject(
+      new AuthenticationError("Sign in to sync this account."),
+    );
   const existing = running.get(journal.account);
   if (existing) return existing;
   const promise = (async () => {
     let more = true;
     while (more) {
       const s = await journal.read();
-      const seen = new Set<string>();
-      const candidates = s.queue
-        .filter((o) => {
-          const key = o.entity + o.record_id;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return !o.blocked;
-        })
+      const candidates = eligibleOperations(s.queue)
         .slice(0, 500)
         .map(({ blocked, server, ...o }) => o);
       const operations: typeof candidates = [];
@@ -351,7 +357,9 @@ export function synchronize(journal: Journal, auth: string) {
       const next = await journal.read();
       more =
         response.has_more ||
-        (next.queue.some((o) => !o.blocked) && operations.length > 0);
+        // Include writes made while an empty startup pull was in flight.
+        (eligibleOperations(next.queue).length > 0 &&
+          (operations.length > 0 || candidates.length === 0));
     }
     await journal.completeSync();
   })().finally(() => running.delete(journal.account));

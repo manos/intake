@@ -136,6 +136,8 @@
   }
   let syncError = $state(""),
     syncNeeded = $state(false);
+  let syncRequested = false;
+  let initialized = false;
   function syncPending() {
     if (!auth) {
       username = profile?.username ?? "";
@@ -145,7 +147,12 @@
     void sync();
   }
   async function sync() {
-    if (busy || authSubmitting) return;
+    if (!initialized || authSubmitting) return;
+    if (busy) {
+      syncRequested = true;
+      return;
+    }
+    syncRequested = false;
     syncError = "";
     busy = true;
     let active = journal,
@@ -188,6 +195,7 @@
       }
     } finally {
       busy = false;
+      if (syncRequested && !syncError) void sync();
     }
   }
   async function write(
@@ -218,6 +226,7 @@
   }
   async function login(event: SubmitEvent) {
     event.preventDefault();
+    if (authSubmitting) return;
     error = "";
     const creating = modal === "signup";
     if (creating) {
@@ -276,6 +285,8 @@
     }
   }
   async function logout() {
+    if (authSubmitting) return;
+    authSubmitting = true;
     error = "";
     try {
       await api("/logout", auth, undefined, "POST");
@@ -285,6 +296,8 @@
       status = "Signed out · saved on this device";
     } catch {
       error = "Could not sign out. Try again when connected.";
+    } finally {
+      authSubmitting = false;
     }
   }
   function focusDialog(node: HTMLDialogElement) {
@@ -644,6 +657,7 @@
         await refresh();
         status = "Saved on this device";
       } else modal = "login";
+      initialized = true;
       await sync();
       if (auth && modal === "login") close();
       void checkRegistration();
@@ -1232,7 +1246,10 @@
               close();
             }}>Continue on this device</button
           >{/if}
-        {#if auth}<button class="text-button" onclick={logout}>Sign out</button
+        {#if auth}<button
+            class="text-button"
+            disabled={authSubmitting}
+            onclick={logout}>Sign out</button
           >{/if}
         <p class="micro">
           Account changes require an online sign-in. Passwords are never stored.
