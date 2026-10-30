@@ -16,6 +16,7 @@
     type State,
   } from "./core";
   import { previewImport, type Preview } from "./import";
+  import History from "./History.svelte";
   let profile: Profile | undefined = $state(),
     auth = $state(""),
     journal: Journal | undefined,
@@ -87,15 +88,6 @@
           profile.settings.timezone,
           profile.settings.day_start,
         ) === today,
-    ),
-  );
-  const days = $derived(
-    Array.from({ length: 7 }, (_, i) =>
-      new Date(
-        Date.parse((today || "2026-01-01") + "T12:00:00Z") - i * 86400000,
-      )
-        .toISOString()
-        .slice(0, 10),
     ),
   );
   const conflicts = $derived(store.queue.filter((o) => o.blocked));
@@ -736,12 +728,31 @@
     </div>
   </div>
   <main>
+    {#if profile}<div hidden={view !== "week"}>
+        {#key profile.id}<History
+            records={store.records}
+            {profile}
+            {today}
+            onentry={editEntry}
+            onday={(date) => {
+              selected = date;
+              view = "today";
+            }}
+          />{/key}
+      </div>{/if}
     {#if !profile}<section class="sign-in-state">
         <button class="primary" onclick={() => (modal = "login")}
           >Sign in <span>↗</span></button
         >
       </section>
     {:else if view === "today"}
+      {#if selected}<button
+          class="text-button history-back"
+          onclick={() => {
+            view = "week";
+            selected = "";
+          }}>← History</button
+        >{/if}
       <section class="heading">
         <div>
           <p class="eyebrow">{pretty(activeDate)}</p>
@@ -882,46 +893,6 @@
           <p>{day.data.note}</p>
           <span>↗</span></button
         >{/each}
-    {:else if view === "week"}
-      <section class="heading">
-        <div>
-          <h1>History</h1>
-        </div>
-      </section>
-      <div class="week-list">
-        {#each days as date}{@const list = entries.filter(
-            (e) =>
-              dayKey(
-                e.data.occurred_at,
-                profile!.settings.timezone,
-                profile!.settings.day_start,
-              ) === date,
-          )}{@const d = store.records.find(
-            (r) => r.entity === "day" && !r.deleted && r.data.date === date,
-          )}<button
-            class="week-day"
-            onclick={() => {
-              selected = date;
-              view = "today";
-            }}
-            ><span class="week-date"
-              ><strong
-                >{date === today
-                  ? "Today"
-                  : new Intl.DateTimeFormat("en", {
-                      weekday: "long",
-                      timeZone: "UTC",
-                    }).format(new Date(date + "T12:00Z"))}</strong
-              ><small>{date}</small></span
-            ><span class="week-counts"
-              >{#each items.filter((i) => count(i, list) > 0) as i}<span
-                  ><i style={`background:${i.data.color}`}></i>{count(i, list)}
-                  {i.data.unit}<small>{i.data.name}</small></span
-                >{:else}<small>{d?.data.zero ? "Zero day" : "Not logged"}</small
-                >{/each}{#if d?.data.note}<em>Note added</em>{/if}</span
-            ><span>↗</span></button
-          >{/each}
-      </div>
     {:else if view === "items"}
       <section class="heading">
         <div>
@@ -977,7 +948,7 @@
             >
           </div>{/each}
       </div>
-    {:else}
+    {:else if view === "settings"}
       <section class="heading">
         <div>
           <h1>Settings</h1>
