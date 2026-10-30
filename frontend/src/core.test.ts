@@ -382,3 +382,140 @@ it("does not create a pending banner for a failed read-only periodic sync", asyn
     globalThis.fetch = original;
   }
 });
+
+it("sends browser session requests bound to the journal account without a Basic password", async () => {
+  const { api } = await import("./core");
+  const original = globalThis.fetch;
+  let options: RequestInit | undefined;
+  globalThis.fetch = async (_url, init) => {
+    options = init;
+    return new Response("{}");
+  };
+  try {
+    await api("/sync", "session:account-one", { operations: [], cursor: 0 });
+    const headers = new Headers(options?.headers);
+    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get("X-Intake-Account")).toBe("account-one");
+    expect(headers.get("X-Requested-With")).toBe("XMLHttpRequest");
+    expect(options?.credentials).toBe("same-origin");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("identifies expired sessions as authentication errors", async () => {
+  const { api, AuthenticationError } = await import("./core");
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 401 });
+  try {
+    await expect(api("/sync", "session:expired", {})).rejects.toBeInstanceOf(
+      AuthenticationError,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("syncs a local change made while the initial empty pull is in flight", async () => {
+  const { synchronize } = await import("./core");
+  const journal = new Journal("write-during-startup");
+  const original = globalThis.fetch;
+  let first = true;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options!.body as string);
+    if (first) {
+      first = false;
+      await journal.put("day", "day", {
+        date: "2026-10-30",
+        note: "logged during startup",
+        zero: false,
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        results: body.operations.map((op: any) => ({
+          id: op.id,
+          status: "applied",
+          record: {
+            id: op.record_id,
+            entity: op.entity,
+            version: 1,
+            data: op.data,
+            deleted: false,
+          },
+        })),
+        changes: [],
+        cursor: 1,
+        has_more: false,
+      }),
+    );
+  };
+  try {
+    await synchronize(journal, "session:write-during-startup");
+    expect((await journal.read()).queue).toHaveLength(0);
+    expect((await journal.read()).syncNeeded).toBe(false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("refuses to sync a journal under a different restored account", async () => {
+  const { synchronize, AuthenticationError } = await import("./core");
+  const journal = new Journal("cached-account");
+  await journal.put("day", "day", {
+    date: "2026-10-30",
+    note: "private",
+    zero: false,
+  });
+  const original = globalThis.fetch;
+  let requested = false;
+  globalThis.fetch = async () => {
+    requested = true;
+    throw new Error("Unexpected network request");
+  };
+  try {
+    await expect(
+      synchronize(journal, "session:another-account"),
+    ).rejects.toBeInstanceOf(AuthenticationError);
+    expect(requested).toBe(false);
+    expect((await journal.read()).queue).toHaveLength(1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("stops pulling when a conflict blocks a later edit of the same record", async () => {
+  const { synchronize } = await import("./core");
+  const journal = new Journal("blocked-startup");
+  await journal.put("day", "day", {
+    date: "2026-10-30",
+    note: "first",
+    zero: false,
+  });
+  const first = (await journal.read()).queue[0];
+  await journal.accept({
+    results: [{ id: first.id, status: "conflict", message: "Review conflict" }],
+    changes: [],
+    cursor: 0,
+  });
+  await journal.put("day", "day", {
+    date: "2026-10-30",
+    note: "later edit",
+    zero: false,
+  });
+  const original = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    if (++requests > 3) throw new Error("Repeated empty sync requests");
+    return new Response(
+      JSON.stringify({ results: [], changes: [], cursor: 0, has_more: false }),
+    );
+  };
+  try {
+    await synchronize(journal, "session:blocked-startup");
+    expect(requests).toBe(1);
+    expect((await journal.read()).queue).toHaveLength(2);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

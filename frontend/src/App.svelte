@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import {
     Journal,
+    AuthenticationError,
     api,
     basic,
     cacheProfile,
@@ -135,6 +136,8 @@
   }
   let syncError = $state(""),
     syncNeeded = $state(false);
+  let syncRequested = false;
+  let initialized = false;
   function syncPending() {
     if (!auth) {
       username = profile?.username ?? "";
@@ -144,12 +147,32 @@
     void sync();
   }
   async function sync() {
-    if (!journal || !auth || busy) return;
+    if (!initialized || authSubmitting) return;
+    if (busy) {
+      syncRequested = true;
+      return;
+    }
+    syncRequested = false;
     syncError = "";
     busy = true;
-    const active = journal,
+    let active = journal,
       credential = auth;
     try {
+      if (!auth) {
+        const attempt = loginAttempt;
+        const p: Profile = await (await api("/me", "")).json();
+        if (attempt !== loginAttempt || authSubmitting) return;
+        if (profile && p.id !== profile.id)
+          throw new AuthenticationError("Sign in to sync this account.");
+        profile = p;
+        journal ??= new Journal(p.id);
+        auth = `session:${p.id}`;
+        active = journal;
+        credential = auth;
+        await cacheProfile(p);
+        await refresh();
+      }
+      if (!active || credential !== auth) return;
       await synchronize(active, credential);
       if (active !== journal || credential !== auth) return;
       await refresh();
@@ -167,11 +190,12 @@
           e instanceof TypeError
             ? "Could not reach the server."
             : (e as Error).message;
-        if (syncError === "Sign in again to sync.") auth = "";
+        if (e instanceof AuthenticationError) auth = "";
         status = syncError;
       }
     } finally {
       busy = false;
+      if (syncRequested && !syncError) void sync();
     }
   }
   async function write(
@@ -202,6 +226,7 @@
   }
   async function login(event: SubmitEvent) {
     event.preventDefault();
+    if (authSubmitting) return;
     error = "";
     const creating = modal === "signup";
     if (creating) {
@@ -223,7 +248,7 @@
               password,
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             })
-          : api("/me", credential))
+          : api("/session", credential, undefined, "POST"))
       ).json();
       if (attempt !== loginAttempt) return;
       dialogEpoch++;
@@ -238,7 +263,7 @@
       syncError = "";
       syncNeeded = false;
       profile = p;
-      auth = credential;
+      auth = `session:${p.id}`;
       password = "";
       confirmPassword = "";
       if (firstRun) registrationAllowed = false;
@@ -247,6 +272,7 @@
       await cacheProfile(p);
       await refresh();
       modal = "";
+      authSubmitting = false;
       void sync();
     } catch (e) {
       if (attempt === loginAttempt)
@@ -256,6 +282,22 @@
             : (e as Error).message;
     } finally {
       if (attempt === loginAttempt) authSubmitting = false;
+    }
+  }
+  async function logout() {
+    if (authSubmitting) return;
+    authSubmitting = true;
+    error = "";
+    try {
+      await api("/logout", auth, undefined, "POST");
+      loginAttempt++;
+      auth = "";
+      close();
+      status = "Signed out · saved on this device";
+    } catch {
+      error = "Could not sign out. Try again when connected.";
+    } finally {
+      authSubmitting = false;
     }
   }
   function focusDialog(node: HTMLDialogElement) {
@@ -613,8 +655,11 @@
       if (profile) {
         journal = new Journal(profile.id);
         await refresh();
-        status = "On this device · sign in to sync";
+        status = "Saved on this device";
       } else modal = "login";
+      initialized = true;
+      await sync();
+      if (auth && modal === "login") close();
       void checkRegistration();
       await navigator.storage?.persist?.();
     })();
@@ -1198,10 +1243,13 @@
         {#if profile}<button
             class="text-button"
             onclick={() => {
-              auth = "";
               close();
-              status = "Offline mode · saved on this device";
             }}>Continue on this device</button
+          >{/if}
+        {#if auth}<button
+            class="text-button"
+            disabled={authSubmitting}
+            onclick={logout}>Sign out</button
           >{/if}
         <p class="micro">
           Account changes require an online sign-in. Passwords are never stored.

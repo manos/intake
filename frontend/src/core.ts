@@ -253,6 +253,8 @@ export function basic(username: string, password: string) {
   const bytes = new TextEncoder().encode(`${username}:${password}`);
   return "Basic " + btoa(String.fromCharCode(...bytes));
 }
+export class AuthenticationError extends Error {}
+
 export async function api(
   path: string,
   auth: string,
@@ -262,12 +264,17 @@ export async function api(
   const response = await fetch("/api" + path, {
     method: method ?? (body ? "POST" : "GET"),
     headers: {
-      Authorization: auth,
+      ...(auth.startsWith("session:")
+        ? { "X-Intake-Account": auth.slice(8) }
+        : auth
+          ? { Authorization: auth }
+          : {}),
       "X-Requested-With": "XMLHttpRequest",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    credentials: "same-origin",
   });
   if (response.status === 409) {
     const body = await response
@@ -287,32 +294,40 @@ export async function api(
           : `Could not create your account (${response.status}).`,
     );
   }
+  if (response.status === 401)
+    throw new AuthenticationError(
+      path === "/session"
+        ? "Username or password wasn’t recognized."
+        : "Sign in again to sync.",
+    );
   if (!response.ok)
     throw new Error(
-      response.status === 401
-        ? path === "/me"
-          ? "Username or password wasn’t recognized."
-          : "Sign in again to sync."
-        : `Server could not complete this request (${response.status}).`,
+      `Server could not complete this request (${response.status}).`,
     );
   return response;
 }
 const running = new Map<string, Promise<void>>();
+function eligibleOperations(queue: Op[]) {
+  const seen = new Set<string>();
+  return queue.filter((op) => {
+    const key = op.entity + op.record_id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return !op.blocked;
+  });
+}
 export function synchronize(journal: Journal, auth: string) {
+  if (auth.startsWith("session:") && auth !== `session:${journal.account}`)
+    return Promise.reject(
+      new AuthenticationError("Sign in to sync this account."),
+    );
   const existing = running.get(journal.account);
   if (existing) return existing;
   const promise = (async () => {
     let more = true;
     while (more) {
       const s = await journal.read();
-      const seen = new Set<string>();
-      const candidates = s.queue
-        .filter((o) => {
-          const key = o.entity + o.record_id;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return !o.blocked;
-        })
+      const candidates = eligibleOperations(s.queue)
         .slice(0, 500)
         .map(({ blocked, server, ...o }) => o);
       const operations: typeof candidates = [];
@@ -342,7 +357,9 @@ export function synchronize(journal: Journal, auth: string) {
       const next = await journal.read();
       more =
         response.has_more ||
-        (next.queue.some((o) => !o.blocked) && operations.length > 0);
+        // Include writes made while an empty startup pull was in flight.
+        (eligibleOperations(next.queue).length > 0 &&
+          (operations.length > 0 || candidates.length === 0));
     }
     await journal.completeSync();
   })().finally(() => running.delete(journal.account));

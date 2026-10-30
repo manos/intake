@@ -37,6 +37,7 @@ def initialize(directory):
         CREATE INDEX IF NOT EXISTS user_changes ON changes(user_id,seq);
         CREATE TABLE IF NOT EXISTS receipts(user_id TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(user_id,id));
         CREATE TABLE IF NOT EXISTS throttle(key TEXT PRIMARY KEY, failures INTEGER NOT NULL, blocked_until REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at REAL NOT NULL);
         """)
     os.chmod(path, 0o600)
     return path

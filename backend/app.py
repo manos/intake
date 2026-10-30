@@ -7,6 +7,7 @@ import hmac
 import io
 import json
 import os
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -22,6 +23,8 @@ from backend.db import connect, hash_password, initialize, insert_user
 from backend.models import MODELS, Operation, Settings, Signup, Sync
 
 MAX_BODY = 4 * 1024 * 1024
+SESSION_SECONDS = 30 * 24 * 60 * 60
+SESSION_COOKIE = "intake_session"
 
 
 def canonical(value):
@@ -100,9 +103,39 @@ def create_app(config_dir=None):
             response.headers["Cache-Control"] = "private, no-store"
         return response
 
+    def challenge(request):
+        return (
+            {}
+            if request.headers.get("x-requested-with") == "XMLHttpRequest"
+            else {"WWW-Authenticate": 'Basic realm="Intake", charset="UTF-8"'}
+        )
+
+    def bound_account(request, row):
+        expected = request.headers.get("x-intake-account")
+        if expected and expected != row["id"]:
+            raise HTTPException(401, "Sign in to sync this account")
+        return dict(row)
+
     def user(request: Request):
         username = password = ""
         authorization = request.headers.get("authorization", "")
+        if not authorization:
+            token = request.cookies.get(SESSION_COOKIE, "")
+            if (
+                token
+                and len(token) <= 128
+                and request.headers.get("x-requested-with") == "XMLHttpRequest"
+            ):
+                with connect(app.state.db) as db:
+                    row = db.execute(
+                        "SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id "
+                        "WHERE token_hash=? AND expires_at>?",
+                        (hashlib.sha256(token.encode()).hexdigest(), time.time()),
+                    ).fetchone()
+                if row:
+                    return bound_account(request, row)
+            # A missing/expired random session is not a password attempt.
+            raise HTTPException(401, "Invalid credentials", headers=challenge(request))
         try:
             scheme, encoded = authorization.split(" ", 1)
             if scheme.lower() == "basic" and len(encoded) <= 8192:
@@ -153,20 +186,64 @@ def create_app(config_dir=None):
                 db.commit()
                 # The app owns the sign-in form. A Basic challenge on its fetch
                 # requests opens the browser's separate credentials dialog.
-                challenge = (
-                    {}
-                    if request.headers.get("x-requested-with") == "XMLHttpRequest"
-                    else {"WWW-Authenticate": 'Basic realm="Intake", charset="UTF-8"'}
-                )
                 raise HTTPException(
                     401,
                     "Invalid credentials",
-                    headers=challenge,
+                    headers=challenge(request),
                 )
             db.execute("DELETE FROM throttle WHERE key=?", (key,))
-            return dict(row)
+            return bound_account(request, row)
 
     authenticated_user = Depends(user)
+
+    def browser_session(db, response, request, user_id):
+        token = secrets.token_urlsafe(32)
+        # Rotate this browser's session without ending sessions on other devices.
+        previous = request.cookies.get(SESSION_COOKIE, "")
+        db.execute(
+            "DELETE FROM sessions WHERE expires_at<=? OR token_hash=?",
+            (time.time(), hashlib.sha256(previous.encode()).hexdigest()),
+        )
+        db.execute(
+            "INSERT INTO sessions VALUES(?,?,?)",
+            (
+                hashlib.sha256(token.encode()).hexdigest(),
+                user_id,
+                time.time() + SESSION_SECONDS,
+            ),
+        )
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_SECONDS,
+            path="/api",
+            httponly=True,
+            samesite="strict",
+            secure=public_origin.startswith("https://")
+            or request.url.scheme == "https",
+        )
+
+    @app.post("/api/session")
+    def session(request: Request, response: Response, account=authenticated_user):
+        if not request.headers.get("authorization"):
+            raise HTTPException(401, "Password required", headers=challenge(request))
+        with connect(app.state.db) as db:
+            browser_session(db, response, request, account["id"])
+        return me(account)
+
+    @app.post("/api/logout", status_code=204)
+    def logout(request: Request):
+        if request.headers.get("x-requested-with") != "XMLHttpRequest":
+            raise HTTPException(403, "App request required")
+        token = request.cookies.get(SESSION_COOKIE, "")
+        with connect(app.state.db) as db:
+            db.execute(
+                "DELETE FROM sessions WHERE token_hash=?",
+                (hashlib.sha256(token.encode()).hexdigest(),),
+            )
+        response = Response(status_code=204)
+        response.delete_cookie(SESSION_COOKIE, path="/api")
+        return response
 
     @app.get("/health")
     def health():
@@ -216,7 +293,12 @@ def create_app(config_dir=None):
         return {"allowed": first_run or allow_signup, "first_run": first_run}
 
     @app.post("/api/signup", status_code=201)
-    def signup(payload: Signup, attempt=registration_attempt):
+    def signup(
+        payload: Signup,
+        request: Request,
+        response: Response,
+        attempt=registration_attempt,
+    ):
         with connect(app.state.db) as db:
             # The lock covers bootstrap admission and insertion together. A
             # cached registration response never authorizes a later write.
@@ -227,9 +309,11 @@ def create_app(config_dir=None):
             ):
                 raise HTTPException(403, "Registration is closed")
             try:
-                return insert_user(
+                profile = insert_user(
                     db, payload.username, payload.password, payload.timezone
                 )
+                browser_session(db, response, request, profile["id"])
+                return profile
             except sqlite3.IntegrityError:
                 raise HTTPException(409, "Username is unavailable") from None
 

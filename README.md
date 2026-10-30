@@ -45,6 +45,8 @@ When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external ori
 
 A local save is acknowledged only after its IndexedDB transaction succeeds. The visible pending count shows entries still waiting for the server. Independent devices cannot know each other's offline entries. If both edit the same record, Intake preserves the local change and asks which version to keep.
 
+Sign-in lasts 30 days on this browser. Intake restores the session after reopening and syncs automatically when the server returns. Passwords are never saved. Sign out from the account dialog to end the session; pending entries stay on the device until you sign in again.
+
 ## Backup and restore
 
 ```sh
