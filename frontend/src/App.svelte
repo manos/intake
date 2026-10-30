@@ -135,6 +135,7 @@
       await current.put(entity, id, data, deleted);
       if (current !== journal) return false;
       await refresh();
+      if (current !== journal) return false;
       void sync();
       return true;
     } catch {
