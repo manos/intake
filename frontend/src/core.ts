@@ -26,6 +26,11 @@ export interface State {
   queue: Op[];
   cursor: number;
 }
+// Persist the JSON wire representation, not framework reactive proxies, which
+// IndexedDB's structured clone cannot store.
+function jsonCopy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
 export function dayKey(
   instant: string | Date,
   timezone: string,
@@ -69,7 +74,7 @@ export async function cacheProfile(profile?: Profile) {
   const tx = db.transaction("profiles", profile ? "readwrite" : "readonly");
   const store = tx.objectStore("profiles");
   if (profile) {
-    store.put(profile, "last");
+    store.put(jsonCopy(profile), "last");
     await finished(tx);
     return profile;
   }
@@ -113,6 +118,7 @@ export class Journal {
     data: Record<string, any>,
     deleted = false,
   ) {
+    data = jsonCopy(data);
     await this.mutate((s) => {
       const prior = s.records.find((r) => r.entity === entity && r.id === id);
       s.records = s.records.filter(
