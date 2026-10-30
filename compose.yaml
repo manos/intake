@@ -7,6 +7,7 @@ services:
     environment:
       CONFIG_DIR: /config
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
     volumes:
       - intake_config:/config
     read_only: true

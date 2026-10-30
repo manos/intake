@@ -12,13 +12,20 @@ Requires Docker with Compose.
 git clone https://github.com/manos/intake.git
 cd intake
 docker compose build
-docker compose run --rm app python -m backend.cli create-user yourname
 docker compose up -d
 ```
 
-The user command prompts for a password without displaying it. Open **http://localhost:8000** and sign in. The default configuration publishes only on loopback. First login needs the server; subsequent offline visits reopen your local journal. Passwords are not saved by the app, so reconnecting after reopening may require signing in again. A sign-in error never removes pending entries.
+Open **http://localhost:8000** and create your account in the app. First launch offers account creation; registration closes automatically after that account exists. Set `ALLOW_SIGNUP=true` to permit additional people to register, or use the operator command below. The default configuration publishes only on loopback. First login needs the server; subsequent offline visits reopen your local journal. Passwords are not saved by the app, so reconnecting after reopening may require signing in again. A sign-in error never removes pending entries.
 
 The named `intake_config` volume is mounted at `/config` and survives container recreation. The server runs as UID/GID 10001. For a bind mount, replace the volume with `./config:/config` and give UID 10001 ownership of that directory before starting. Use local disk rather than a network filesystem for SQLite. Do not commit your config directory or exported journal.
+
+To create additional accounts without opening registration:
+
+```sh
+docker compose exec app python -m backend.cli create-user yourname
+```
+
+This prompts for a password without displaying it. Each account has its own medicines and journal.
 
 ## Offline access and reverse proxies
 

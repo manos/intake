@@ -2,7 +2,7 @@
 
 Intake is designed for a trusted personal device accessing a privately hosted server. Keep it on loopback or a private network. Use HTTPS for Basic authentication outside loopback and for the offline service worker on another device.
 
-There are no initial users or medicines. User creation is an operator command with an interactive password prompt. The backend stores password hashes. The interface holds HTTP Basic credentials in memory only. Authenticated API responses are not service-worker cached. Each user's locally saved journal and pending queue are isolated by server origin and immutable user ID.
+There are no initial users or medicines. The first account can be created in the app while the database is empty. Registration then closes unless the operator enables `ALLOW_SIGNUP=true`; the interactive operator command can also create additional accounts. Complete first-run setup before making the service accessible to other people. The backend stores password hashes. The interface holds HTTP Basic credentials in memory only. Authenticated API responses are not service-worker cached. Each user's locally saved journal and pending queue are isolated by server origin and immutable user ID.
 
 Offline access means the device retains readable journal data after the server becomes unavailable, including after credentials are changed or revoked. Device access is therefore access to that local copy. Use the operating system's screen lock and disk encryption. Clearing browser data removes pending entries: synchronize or export a JSON backup first. Requesting persistent browser storage reduces eviction risk but cannot prevent deliberate clearing. Do not use private browsing for your journal.
 
