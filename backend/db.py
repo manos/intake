@@ -1,12 +1,15 @@
 """Durable local storage and administrative operations."""
 
 import hashlib
+import json
 import os
 import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
+
+from backend.models import USERNAME_PATTERN
 
 
 @contextmanager
@@ -44,24 +47,26 @@ def hash_password(password, salt):
 
 
 def create_user(path, username, password):
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
+    if not re.fullmatch(USERNAME_PATTERN, username):
         raise ValueError(
             "Username must be 1–64 letters, numbers, dots, underscores or hyphens"
         )
     if not 12 <= len(password) <= 1024:
         raise ValueError("Password must contain 12–1024 characters")
-    salt = os.urandom(32)
     with connect(path) as db:
-        db.execute(
-            "INSERT INTO users VALUES(?,?,?,?,?)",
-            (
-                str(uuid4()),
-                username,
-                salt,
-                hash_password(password, salt),
-                '{"timezone":"UTC","day_start":0}',
-            ),
-        )
+        insert_user(db, username, password, "UTC")
+
+
+def insert_user(db, username, password, timezone):
+    """Insert validated account values in the caller's transaction."""
+    salt = os.urandom(32)
+    user_id = str(uuid4())
+    settings = {"timezone": timezone, "day_start": 0}
+    db.execute(
+        "INSERT INTO users VALUES(?,?,?,?,?)",
+        (user_id, username, salt, hash_password(password, salt), json.dumps(settings)),
+    )
+    return {"id": user_id, "username": username, "settings": settings}
 
 
 def backup(path, target):

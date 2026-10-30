@@ -12,30 +12,26 @@ Requires Docker with Compose.
 git clone https://github.com/manos/intake.git
 cd intake
 docker compose build
-docker compose run --rm app python -m backend.cli create-user yourname
 docker compose up -d
 ```
 
-The user command prompts for a password without displaying it. Open **http://localhost:8000** and sign in. The default configuration publishes only on loopback. First login needs the server; subsequent offline visits reopen your local journal. Passwords are not saved by the app, so reconnecting after reopening may require signing in again. A sign-in error never removes pending entries.
+Open **http://localhost:8000** and create your account in the app. First launch offers account creation; registration closes automatically after that account exists. Set `ALLOW_SIGNUP=true` to permit additional people to register, or use the operator command below. The default configuration publishes only on loopback. First login needs the server; subsequent offline visits reopen your local journal. Passwords are not saved by the app, so reconnecting after reopening may require signing in again. A sign-in error never removes pending entries.
 
 The named `intake_config` volume is mounted at `/config` and survives container recreation. The server runs as UID/GID 10001. For a bind mount, replace the volume with `./config:/config` and give UID 10001 ownership of that directory before starting. Use local disk rather than a network filesystem for SQLite. Do not commit your config directory or exported journal.
 
-## Private access through Tailscale
-
-The optional sidecar profile provides a dedicated Tailscale node and Serve endpoint, with Funnel explicitly disabled. No internet-facing publication is needed.
+To create additional accounts without opening registration:
 
 ```sh
-docker compose --profile tailscale up -d
-docker compose exec tailscale tailscale up
+docker compose exec app python -m backend.cli create-user yourname
 ```
 
-Follow the login URL printed by Tailscale using your personal tailnet. Enable tailnet HTTPS certificates if prompted. Obtain the device's HTTPS hostname from `docker compose exec tailscale tailscale status`. Set `PUBLIC_ORIGIN` to that complete `https://…ts.net` origin when starting the app, so its origin protection recognizes your proxy:
+This prompts for a password without displaying it. Each account has its own medicines and journal.
 
-```sh
-PUBLIC_ORIGIN=https://your-device.your-tailnet.ts.net docker compose --profile tailscale up -d
-```
+## Offline access and reverse proxies
 
-Use that same origin on every visit; browser storage belongs to an origin. Open it once while connected, then install using your browser's Add to Home Screen option. The service worker enables reopening offline. On a phone, ordinary HTTP LAN URLs do not enable that service worker. Sync while the app is open or reopened is supported; closed-app background sync depends on the browser. Basic auth remains required inside the tailnet.
+Open the app once while connected before using it offline. Install it using your browser's Add to Home Screen option. Keep the same origin on subsequent visits, because browser storage belongs to an origin. Offline reopening on another device requires a trusted HTTPS origin; localhost works for development. Sync while the app is open or reopened is supported; closed-app background sync depends on the browser.
+
+When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external origin, such as `https://intake.example.test`. The app recognizes this origin for request protection without trusting arbitrary forwarded headers.
 
 ## Everyday use
 

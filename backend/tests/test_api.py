@@ -465,3 +465,24 @@ def test_malicious_cursor_does_not_escape_validation(client):
         headers={"content-type": "application/json"},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "authorization", [None, "Basic bWlzc2luZzp3cm9uZw==", "Basic invalid"]
+)
+def test_form_login_failure_does_not_challenge_browser(client, authorization):
+    client.auth = None
+    headers = {"X-Requested-With": "XMLHttpRequest"}
+    if authorization:
+        headers["Authorization"] = authorization
+    response = client.get("/api/me", headers=headers)
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid credentials"}
+    assert "www-authenticate" not in response.headers
+
+
+def test_native_basic_clients_keep_authentication_challenge(client):
+    client.auth = None
+    response = client.get("/api/me")
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"].startswith("Basic ")

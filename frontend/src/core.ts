@@ -249,6 +249,7 @@ export async function api(
     method: method ?? (body ? "POST" : "GET"),
     headers: {
       Authorization: auth,
+      "X-Requested-With": "XMLHttpRequest",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -261,10 +262,23 @@ export async function api(
       .catch(() => ({}));
     if (body.detail?.code === "cursor_reset") throw new Error("cursor_reset");
   }
+  if (!response.ok && path === "/signup") {
+    const failure = await response.json().catch(() => ({}));
+    const detail = failure.detail;
+    throw new Error(
+      typeof detail === "string"
+        ? detail
+        : response.status === 422
+          ? "Check your username and password, then try again."
+          : `Could not create your account (${response.status}).`,
+    );
+  }
   if (!response.ok)
     throw new Error(
       response.status === 401
-        ? "Sign in again to sync."
+        ? path === "/me"
+          ? "Username or password wasn’t recognized."
+          : "Sign in again to sync."
         : `Server could not complete this request (${response.status}).`,
     );
   return response;
@@ -344,4 +358,16 @@ export async function dayId(date: string) {
   bytes[8] = (bytes[8] & 63) | 128;
   const h = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+export function signupError(
+  username: string,
+  password: string,
+  confirmation: string,
+) {
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(username.trim()))
+    return "Use 1–64 letters, numbers, dots, hyphens or underscores for your username.";
+  if (password.length < 12 || password.length > 1024)
+    return "Use a password between 12 and 1024 characters.";
+  if (password !== confirmation) return "Your passwords don’t match.";
+  return "";
 }
