@@ -210,3 +210,59 @@ it("does not downgrade a returned conflict with an older change page", async () 
   });
   expect((await j.read()).queue[0].server?.version).toBe(9);
 });
+it("can explicitly discard an absent restored tombstone while retaining its backup", async () => {
+  const j = new Journal("tombstone");
+  await j.put(
+    "day",
+    "d",
+    { date: "2026-10-30", note: "backup note", zero: false },
+    true,
+  );
+  const op = (await j.read()).queue[0];
+  await j.resetCursor();
+  const copy = await j.resolve(op, false);
+  expect(copy?.data.note).toBe("backup note");
+  expect((await j.read()).queue).toHaveLength(0);
+  expect((await j.read()).records).toHaveLength(0);
+});
+it("bounds sync payload by encoded bytes for large unicode notes", async () => {
+  const { synchronize } = await import("./core");
+  const j = new Journal("bytes");
+  for (let i = 0; i < 120; i++)
+    await j.put("day", "d" + i, {
+      date: "2026-10-30",
+      note: "🙂".repeat(10000),
+      zero: false,
+    });
+  const sizes: number[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    sizes.push(new TextEncoder().encode(options!.body as string).byteLength);
+    const b = JSON.parse(options!.body as string);
+    return new Response(
+      JSON.stringify({
+        results: b.operations.map((o: any) => ({
+          id: o.id,
+          status: "applied",
+          record: {
+            id: o.record_id,
+            entity: o.entity,
+            version: 1,
+            deleted: false,
+            data: o.data,
+          },
+        })),
+        changes: [],
+        cursor: 0,
+        has_more: false,
+      }),
+    );
+  };
+  try {
+    await synchronize(j, "Basic test");
+    expect(Math.max(...sizes)).toBeLessThan(3 * 1024 * 1024);
+    expect(sizes.length).toBeGreaterThan(1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

@@ -97,18 +97,26 @@
     ),
   );
   const conflicts = $derived(store.queue.filter((o) => o.blocked));
+  let dialogEpoch = 0,
+    loginAttempt = 0;
   async function refresh() {
-    if (journal) store = await journal.read();
+    const active = journal;
+    if (!active) return;
+    const next = await active.read();
+    if (active === journal) store = next;
   }
   async function sync() {
     if (!journal || !auth || busy) return;
     busy = true;
+    const active = journal,
+      credential = auth;
     try {
-      await synchronize(journal, auth);
+      await synchronize(active, credential);
+      if (active !== journal || credential !== auth) return;
       await refresh();
-      status = "Synced just now";
+      if (active === journal) status = "Synced just now";
     } catch (e) {
-      status = (e as Error).message;
+      if (active === journal) status = (e as Error).message;
     } finally {
       busy = false;
     }
@@ -118,10 +126,12 @@
     id: string,
     data: any,
     deleted = false,
+    expected = journal,
   ) {
+    if (!expected || expected !== journal) return false;
     error = "";
     try {
-      const current = journal!;
+      const current = expected;
       await current.put(entity, id, data, deleted);
       if (current !== journal) return false;
       await refresh();
@@ -135,9 +145,12 @@
   async function login(event: SubmitEvent) {
     event.preventDefault();
     error = "";
+    const attempt = ++loginAttempt;
     try {
       const credential = basic(username, password);
       const p = await (await api("/me", credential)).json();
+      if (attempt !== loginAttempt) return;
+      dialogEpoch++;
       undo = undefined;
       editing = undefined;
       target = undefined;
@@ -145,6 +158,7 @@
       quickTime = "";
       backdate = false;
       selected = "";
+      store = { records: [], queue: [], cursor: 0 };
       profile = p;
       auth = credential;
       password = "";
@@ -154,7 +168,7 @@
       modal = "";
       void sync();
     } catch (e) {
-      error = (e as Error).message;
+      if (attempt === loginAttempt) error = (e as Error).message;
     }
   }
   function focusDialog(node: HTMLDialogElement) {
@@ -169,6 +183,7 @@
     };
   }
   function close() {
+    dialogEpoch++;
     modal = "";
     editing = undefined;
     error = "";
@@ -221,6 +236,7 @@
     modal = "log";
   }
   async function log(item: Row, qty = item.data.amount, custom = false) {
+    const active = journal;
     const data: Record<string, any> =
       editing && custom
         ? { ...editing.data }
@@ -241,7 +257,7 @@
       note: custom ? note : quickNote,
     });
     const entryId = custom && editing ? editing.id : crypto.randomUUID();
-    if (await write("entry", entryId, data)) {
+    if (await write("entry", entryId, data, false, active)) {
       const date = dayKey(
         data.occurred_at,
         profile!.settings.timezone,
@@ -255,7 +271,14 @@
           r.data.zero,
       );
       if (zeroDay)
-        await write("day", zeroDay.id, { ...zeroDay.data, zero: false });
+        await write(
+          "day",
+          zeroDay.id,
+          { ...zeroDay.data, zero: false },
+          false,
+          active,
+        );
+      if (active !== journal) return;
       if (!editing) {
         undo = {
           id: entryId,
@@ -297,11 +320,24 @@
     }
   }
   async function reorder(item: Row, direction: number) {
+    const active = journal;
     const index = items.indexOf(item),
       other = items[index + direction];
     if (!other) return;
-    await write("item", item.id, { ...item.data, order: other.data.order });
-    await write("item", other.id, { ...other.data, order: item.data.order });
+    await write(
+      "item",
+      item.id,
+      { ...item.data, order: other.data.order },
+      false,
+      active,
+    );
+    await write(
+      "item",
+      other.id,
+      { ...other.data, order: item.data.order },
+      false,
+      active,
+    );
   }
   function openDay() {
     const row = store.records.find(
@@ -313,6 +349,7 @@
   }
   async function saveDay(event: SubmitEvent) {
     event.preventDefault();
+    const active = journal;
     if (zero && dayEntries.length) {
       error = "This day has entries. Remove them before marking a zero day.";
       return;
@@ -320,28 +357,46 @@
     const row = store.records.find(
       (r) => r.entity === "day" && r.data.date === activeDate,
     );
-    if (
-      await write("day", row?.id ?? (await dayId(activeDate)), {
-        date: activeDate,
-        note: dailyNote,
-        zero,
-      })
-    )
-      close();
+    const data = { date: activeDate, note: dailyNote, zero };
+    const id = row?.id ?? (await dayId(data.date));
+    if (await write("day", id, data, false, active)) close();
   }
   async function settings(event: SubmitEvent) {
     event.preventDefault();
+    const active = journal,
+      identity = profile?.id,
+      credential = auth,
+      originalModal = modal,
+      epoch = dialogEpoch;
     try {
       new Intl.DateTimeFormat("en", { timeZone: timezone });
       const p = await (
-        await api("/settings", auth, { timezone, day_start: +boundary }, "PUT")
+        await api(
+          "/settings",
+          credential,
+          { timezone, day_start: +boundary },
+          "PUT",
+        )
       ).json();
+      if (
+        active !== journal ||
+        identity !== profile?.id ||
+        credential !== auth ||
+        epoch !== dialogEpoch
+      )
+        return;
       profile = { ...profile!, settings: p.settings ?? p };
       await cacheProfile(profile);
+      if (active !== journal || identity !== profile?.id) return;
       selected = "";
-      close();
+      if (modal === originalModal && epoch === dialogEpoch) close();
     } catch (e) {
-      error = (e as Error).message;
+      if (
+        active === journal &&
+        modal === originalModal &&
+        epoch === dialogEpoch
+      )
+        error = (e as Error).message;
     }
   }
   function download(blob: Blob, filename: string) {
@@ -396,6 +451,7 @@
     importPreview = previewImport(await file.text(), file.name);
   }
   async function importRows() {
+    const active = journal;
     if (!importPreview || importPreview.errors.length) return;
     const all = new Map(items.map((i) => [i.id, i]));
     for (const r of importPreview.rows)
@@ -420,7 +476,7 @@
         r.entity === "day"
           ? (existingDay?.id ?? (await dayId(r.data.date)))
           : r.id;
-      if (!(await write(r.entity, id, r.data))) return;
+      if (!(await write(r.entity, id, r.data, false, active))) return;
     }
     close();
     importPreview = undefined;
@@ -908,19 +964,22 @@
                 await refresh();
                 void sync();
               }}>Keep local</button
-            >{#if op.server}<button
-                class="text-button"
-                onclick={async () => {
-                  const copy = await journal!.resolve(op, false);
-                  download(
-                    new Blob([JSON.stringify({ record: copy }, null, 2)], {
-                      type: "application/json",
-                    }),
-                    "intake-conflict-copy.json",
-                  );
-                  await refresh();
-                }}>Use server & save local copy</button
-              >{/if}
+            ><button
+              class="text-button"
+              onclick={async () => {
+                const copy = await journal!.resolve(op, false);
+                download(
+                  new Blob([JSON.stringify({ record: copy }, null, 2)], {
+                    type: "application/json",
+                  }),
+                  "intake-conflict-copy.json",
+                );
+                await refresh();
+              }}
+              >{op.server
+                ? "Use server & save local copy"
+                : "Discard local & save a copy"}</button
+            >
           </div>{/each}
       </section>{/if}
     {#if error && !modal}<p class="error" role="alert">{error}</p>{/if}

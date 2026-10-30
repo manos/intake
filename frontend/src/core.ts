@@ -225,11 +225,11 @@ export class Journal {
           data: row.data,
           deleted: row.deleted,
         });
-      } else if (op.server) {
+      } else {
         s.records = s.records.filter(
           (r) => !(r.entity === op.entity && r.id === op.record_id),
         );
-        s.records.push(op.server);
+        if (op.server) s.records.push(op.server);
       }
     });
     return copy;
@@ -278,7 +278,7 @@ export function synchronize(journal: Journal, auth: string) {
     while (more) {
       const s = await journal.read();
       const seen = new Set<string>();
-      const operations = s.queue
+      const candidates = s.queue
         .filter((o) => {
           const key = o.entity + o.record_id;
           if (seen.has(key)) return false;
@@ -287,6 +287,17 @@ export function synchronize(journal: Journal, auth: string) {
         })
         .slice(0, 500)
         .map(({ blocked, server, ...o }) => o);
+      const operations: typeof candidates = [];
+      let bytes = new TextEncoder().encode(
+        JSON.stringify({ operations: [], cursor: s.cursor }),
+      ).byteLength;
+      for (const op of candidates) {
+        const size =
+          new TextEncoder().encode(JSON.stringify(op)).byteLength + 1;
+        if (bytes + size >= 3 * 1024 * 1024) break;
+        operations.push(op);
+        bytes += size;
+      }
       let response;
       try {
         response = await (
