@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${INTAKE_PORT:-8000}:8000"
+    environment:
+      CONFIG_DIR: /config
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+    volumes:
+      - intake_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 20s
+
+  tailscale:
+    image: tailscale/tailscale:stable
+    profiles: [tailscale]
+    hostname: intake
+    restart: unless-stopped
+    environment:
+      TS_AUTH_ONCE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_SERVE_CONFIG: /etc/tailscale/serve.json
+    volumes:
+      - intake_tailscale:/var/lib/tailscale
+      - ./deploy/serve.json:/etc/tailscale/serve.json:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  intake_config:
+  intake_tailscale:
