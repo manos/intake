@@ -130,7 +130,7 @@
     const next = await active.read();
     if (active === journal) {
       store = next;
-      if (next.queue.length) syncNeeded = true;
+      syncNeeded = !!next.syncNeeded || next.queue.length > 0;
     }
   }
   let syncError = $state(""),
@@ -154,7 +154,7 @@
       if (active !== journal || credential !== auth) return;
       await refresh();
       if (active === journal) {
-        syncNeeded = store.queue.length > 0;
+        syncNeeded = !!store.syncNeeded || store.queue.length > 0;
         status = store.queue.length
           ? "Some changes still need attention."
           : "Synced just now";

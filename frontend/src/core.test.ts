@@ -304,3 +304,81 @@ it("persists a profile supplied by reactive UI settings", async () => {
   await cacheProfile(profile);
   expect((await cacheProfile())?.settings.day_start).toBe(4);
 });
+it("retains a durable account-scoped sync requirement after acknowledged writes and a failed pull", async () => {
+  const { synchronize } = await import("./core");
+  const journal = new Journal("durable-banner");
+  await journal.put("day", "day", {
+    date: "2026-10-30",
+    note: "saved",
+    zero: false,
+  });
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    const b = JSON.parse(options!.body as string);
+    if (++calls === 2) throw new TypeError("offline");
+    return new Response(
+      JSON.stringify({
+        results: b.operations.map((o: any) => ({
+          id: o.id,
+          status: "applied",
+          record: {
+            id: o.record_id,
+            entity: o.entity,
+            version: 1,
+            deleted: false,
+            data: o.data,
+          },
+        })),
+        changes: [],
+        cursor: 1,
+        has_more: true,
+      }),
+    );
+  };
+  try {
+    await expect(synchronize(journal, "Basic test")).rejects.toThrow("offline");
+    const restored = await new Journal("durable-banner").read();
+    expect(restored.queue).toHaveLength(0);
+    expect(restored.syncNeeded).toBe(true);
+    expect((await new Journal("other-banner").read()).syncNeeded).toBe(false);
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          results: [],
+          changes: [],
+          cursor: 1,
+          has_more: false,
+        }),
+      );
+    await synchronize(new Journal("durable-banner"), "Basic test");
+    expect((await journal.read()).syncNeeded).toBe(false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+it("does not clear a concurrent local write when marking a sync complete", async () => {
+  const j = new Journal("concurrent-banner");
+  await j.put("day", "day", {
+    date: "2026-10-30",
+    note: "pending",
+    zero: false,
+  });
+  await j.completeSync();
+  expect((await j.read()).syncNeeded).toBe(true);
+  expect((await j.read()).queue).toHaveLength(1);
+});
+it("does not create a pending banner for a failed read-only periodic sync", async () => {
+  const { synchronize } = await import("./core");
+  const j = new Journal("quiet-banner");
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new TypeError("offline");
+  };
+  try {
+    await expect(synchronize(j, "Basic test")).rejects.toThrow();
+    expect((await j.read()).syncNeeded).toBe(false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

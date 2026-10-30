@@ -25,6 +25,7 @@ export interface State {
   records: Row[];
   queue: Op[];
   cursor: number;
+  syncNeeded?: boolean;
 }
 // Persist the JSON wire representation, not framework reactive proxies, which
 // IndexedDB's structured clone cannot store.
@@ -92,11 +93,11 @@ export class Journal {
   constructor(public account: string) {}
   async read(): Promise<State> {
     const db = await database();
-    return (
-      (await request<State>(
-        db.transaction("accounts").objectStore("accounts").get(this.account),
-      )) ?? { records: [], queue: [], cursor: 0 }
-    );
+    const state = (await request<State>(
+      db.transaction("accounts").objectStore("accounts").get(this.account),
+    )) ?? { records: [], queue: [], cursor: 0 };
+    state.syncNeeded ??= state.queue.length > 0;
+    return state;
   }
   private async mutate(fn: (s: State) => void) {
     const db = await database();
@@ -108,9 +109,16 @@ export class Journal {
       queue: [],
       cursor: 0,
     };
+    s.syncNeeded ??= s.queue.length > 0;
     fn(s);
+    if (s.queue.length) s.syncNeeded = true;
     store.put(s, this.account);
     await done;
+  }
+  async completeSync() {
+    await this.mutate((s) => {
+      if (!s.queue.length) s.syncNeeded = false;
+    });
   }
   async put(
     entity: Entity,
@@ -336,6 +344,7 @@ export function synchronize(journal: Journal, auth: string) {
         response.has_more ||
         (next.queue.some((o) => !o.blocked) && operations.length > 0);
     }
+    await journal.completeSync();
   })().finally(() => running.delete(journal.account));
   running.set(journal.account, promise);
   return promise;
