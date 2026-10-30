@@ -253,6 +253,8 @@ export function basic(username: string, password: string) {
   const bytes = new TextEncoder().encode(`${username}:${password}`);
   return "Basic " + btoa(String.fromCharCode(...bytes));
 }
+export class AuthenticationError extends Error {}
+
 export async function api(
   path: string,
   auth: string,
@@ -262,12 +264,17 @@ export async function api(
   const response = await fetch("/api" + path, {
     method: method ?? (body ? "POST" : "GET"),
     headers: {
-      Authorization: auth,
+      ...(auth.startsWith("session:")
+        ? { "X-Intake-Account": auth.slice(8) }
+        : auth
+          ? { Authorization: auth }
+          : {}),
       "X-Requested-With": "XMLHttpRequest",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    credentials: "same-origin",
   });
   if (response.status === 409) {
     const body = await response
@@ -287,13 +294,15 @@ export async function api(
           : `Could not create your account (${response.status}).`,
     );
   }
+  if (response.status === 401)
+    throw new AuthenticationError(
+      path === "/session"
+        ? "Username or password wasn’t recognized."
+        : "Sign in again to sync.",
+    );
   if (!response.ok)
     throw new Error(
-      response.status === 401
-        ? path === "/me"
-          ? "Username or password wasn’t recognized."
-          : "Sign in again to sync."
-        : `Server could not complete this request (${response.status}).`,
+      `Server could not complete this request (${response.status}).`,
     );
   return response;
 }

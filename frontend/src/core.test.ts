@@ -382,3 +382,36 @@ it("does not create a pending banner for a failed read-only periodic sync", asyn
     globalThis.fetch = original;
   }
 });
+
+it("sends browser session requests bound to the journal account without a Basic password", async () => {
+  const { api } = await import("./core");
+  const original = globalThis.fetch;
+  let options: RequestInit | undefined;
+  globalThis.fetch = async (_url, init) => {
+    options = init;
+    return new Response("{}");
+  };
+  try {
+    await api("/sync", "session:account-one", { operations: [], cursor: 0 });
+    const headers = new Headers(options?.headers);
+    expect(headers.get("Authorization")).toBeNull();
+    expect(headers.get("X-Intake-Account")).toBe("account-one");
+    expect(headers.get("X-Requested-With")).toBe("XMLHttpRequest");
+    expect(options?.credentials).toBe("same-origin");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+it("identifies expired sessions as authentication errors", async () => {
+  const { api, AuthenticationError } = await import("./core");
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 401 });
+  try {
+    await expect(api("/sync", "session:expired", {})).rejects.toBeInstanceOf(
+      AuthenticationError,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
