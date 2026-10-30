@@ -1,0 +1,22 @@
+[project]
+name = "intake"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn[standard]", "xlwt"]
+license = "MIT"
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+    "xlrd",
+    "ruff>=0.17.3",
+]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests"]
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+[tool.setuptools.packages.find]
+include = ["backend*"]
+exclude = ["backend.tests*"]
