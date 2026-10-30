@@ -9,6 +9,7 @@
     dayId,
     snapshot,
     synchronize,
+    signupError,
     type Profile,
     type Row,
     type State,
@@ -97,6 +98,30 @@
     ),
   );
   const conflicts = $derived(store.queue.filter((o) => o.blocked));
+  let registrationAllowed = $state(false),
+    firstRun = $state(false),
+    registrationError = $state(""),
+    checkingRegistration = $state(false),
+    confirmPassword = $state(""),
+    authSubmitting = $state(false);
+  async function checkRegistration() {
+    checkingRegistration = true;
+    registrationError = "";
+    try {
+      const result = await (await api("/registration", "")).json();
+      registrationAllowed = result.allowed;
+      firstRun = result.first_run;
+      if (firstRun && !profile) {
+        modal = "signup";
+        error = "";
+      }
+    } catch {
+      registrationError =
+        "Can’t reach the server. Account creation needs an online connection.";
+    } finally {
+      checkingRegistration = false;
+    }
+  }
   let dialogEpoch = 0,
     loginAttempt = 0;
   async function refresh() {
@@ -146,10 +171,28 @@
   async function login(event: SubmitEvent) {
     event.preventDefault();
     error = "";
+    const creating = modal === "signup";
+    if (creating) {
+      error = signupError(username, password, confirmPassword);
+      if (error) return;
+      if (!navigator.onLine) {
+        error = "Connect to the server to create your account.";
+        return;
+      }
+    }
     const attempt = ++loginAttempt;
+    authSubmitting = true;
     try {
-      const credential = basic(username, password);
-      const p = await (await api("/me", credential)).json();
+      const credential = basic(username.trim(), password);
+      const p = await (
+        await (creating
+          ? api("/signup", "", {
+              username: username.trim(),
+              password,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            })
+          : api("/me", credential))
+      ).json();
       if (attempt !== loginAttempt) return;
       dialogEpoch++;
       undo = undefined;
@@ -163,13 +206,22 @@
       profile = p;
       auth = credential;
       password = "";
+      confirmPassword = "";
+      if (firstRun) registrationAllowed = false;
+      firstRun = false;
       journal = new Journal(p.id);
       await cacheProfile(p);
       await refresh();
       modal = "";
       void sync();
     } catch (e) {
-      if (attempt === loginAttempt) error = (e as Error).message;
+      if (attempt === loginAttempt)
+        error =
+          e instanceof TypeError
+            ? "Can’t reach the server. Check your connection and try again."
+            : (e as Error).message;
+    } finally {
+      if (attempt === loginAttempt) authSubmitting = false;
     }
   }
   function focusDialog(node: HTMLDialogElement) {
@@ -529,6 +581,7 @@
         await refresh();
         status = "On this device · sign in to sync";
       } else modal = "login";
+      void checkRegistration();
       await navigator.storage?.persist?.();
     })();
     const tick = setInterval(() => (now = new Date()), 30000);
@@ -1064,29 +1117,90 @@
             onclick={close}>×</button
           >{/if}
       </div>
-      {#if modal === "login"}<h2 id="dialog-title">
-          {profile ? "Connect your journal." : "Welcome to your space."}
+      {#if modal === "login" || modal === "signup"}<h2 id="dialog-title">
+          {modal === "signup"
+            ? firstRun
+              ? "Your space starts here."
+              : "Make a little room."
+            : profile
+              ? "Connect your journal."
+              : "Welcome to your space."}
         </h2>
         <p>
-          Sign in once online. Your journal stays available offline on this
-          device.
+          {modal === "signup"
+            ? "Create a private account. Your journal begins with an open page, ready to make your own."
+            : "Sign in once online. Your journal stays available offline on this device."}
         </p>
         <form onsubmit={login}>
           <label
             >Username<input
               required
               autocomplete="username"
+              maxlength="64"
+              autocapitalize="none"
+              spellcheck={false}
+              pattern={modal === "signup"
+                ? "[A-Za-z0-9_.\\-]{1,64}"
+                : undefined}
               bind:value={username}
             /></label
           ><label
             >Password<input
               type="password"
               required
-              autocomplete="current-password"
+              autocomplete={modal === "signup"
+                ? "new-password"
+                : "current-password"}
+              minlength={modal === "signup" ? 12 : undefined}
+              maxlength="1024"
               bind:value={password}
             /></label
-          ><button class="primary" type="submit">Sign in <span>↗</span></button>
+          >{#if modal === "signup"}<label
+              >Confirm password<input
+                type="password"
+                required
+                autocomplete="new-password"
+                minlength="12"
+                maxlength="1024"
+                bind:value={confirmPassword}
+              /></label
+            >
+            <p class="micro">
+              At least 12 characters. Choose a unique password.
+            </p>{/if}<button
+            class="primary"
+            type="submit"
+            disabled={authSubmitting}
+            >{authSubmitting
+              ? "One moment…"
+              : modal === "signup"
+                ? "Create account"
+                : "Sign in"} <span>↗</span></button
+          >
         </form>
+        {#if modal === "signup"}<button
+            class="text-button"
+            onclick={() => {
+              modal = "login";
+              error = "";
+              confirmPassword = "";
+            }}>Already have an account? Sign in ↗</button
+          >{:else if registrationAllowed}<button
+            class="text-button"
+            onclick={() => {
+              modal = "signup";
+              error = "";
+              password = "";
+              confirmPassword = "";
+            }}>Create an account ↗</button
+          >{/if}
+        {#if registrationError}<p class="error">{registrationError}</p>
+          <button
+            class="text-button"
+            disabled={checkingRegistration}
+            onclick={checkRegistration}
+            >{checkingRegistration ? "Checking…" : "Try again ↻"}</button
+          >{/if}
         {#if profile}<button
             class="text-button"
             onclick={() => {
