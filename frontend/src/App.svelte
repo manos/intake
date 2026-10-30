@@ -163,8 +163,11 @@
       if (current !== journal) return false;
       void sync();
       return true;
-    } catch {
-      error = "Could not save on this device. Free some storage and try again.";
+    } catch (e) {
+      error =
+        e instanceof DOMException && e.name === "QuotaExceededError"
+          ? "Device storage is full."
+          : "Could not save changes. Try again.";
       return false;
     }
   }
@@ -598,7 +601,7 @@
   });
 </script>
 
-<svelte:head><title>Intake · Your daily journal</title></svelte:head>
+<svelte:head><title>Intake</title></svelte:head>
 <div class="app-shell">
   <header class="topbar">
     <a
@@ -608,7 +611,7 @@
         e.preventDefault();
         view = "today";
         selected = "";
-      }}>intake<span>✳</span></a
+      }}>intake</a
     ><button
       class="profile-button"
       onclick={() => {
@@ -626,20 +629,13 @@
       {#each items.filter((i) => !i.data.archived || count(i) > 0) as item}<span
           ><i style={`background:${item.data.color}`}></i><b>{count(item)}</b>
           {item.data.unit}<small>{item.data.name}</small></span
-        >{:else}<span class="muted">Your day, at your pace.</span>{/each}
+        >{:else}<span class="muted">No items</span>{/each}
     </div>
   </div>
   <main>
-    {#if !profile}<section class="welcome">
-        <span class="large-mark">✳</span>
-        <p class="eyebrow">A LITTLE MORE AWARE</p>
-        <h1>A moment for<br />yourself.</h1>
-        <p>
-          A private place to notice your patterns.<br />Start with what matters
-          to you.
-        </p>
+    {#if !profile}<section class="sign-in-state">
         <button class="primary" onclick={() => (modal = "login")}
-          >Sign in to begin <span>↗</span></button
+          >Sign in <span>↗</span></button
         >
       </section>
     {:else if view === "today"}
@@ -647,9 +643,7 @@
         <div>
           <p class="eyebrow">{pretty(activeDate)}</p>
           <h1>
-            {activeDate === today
-              ? "A little more aware."
-              : "A day to look back on."}
+            {activeDate === today ? "Today" : "History"}
           </h1>
         </div>
         <span class="date-stamp"
@@ -662,17 +656,9 @@
         >
       </section>
       {#if !items.length}<section class="empty-card">
-          <span class="botanical">✳</span>
-          <p class="eyebrow">MAKE IT YOURS</p>
-          <h2>Begin with one thing.</h2>
-          <p>
-            Add something you’d like to keep track of.<br />You choose the name,
-            the unit, and the amount.
-          </p>
           <button class="primary" onclick={() => itemForm()}
-            >Add your first item <span>+</span></button
+            >Add first item <span>+</span></button
           >
-          <p class="micro">No assumptions. No prefilled list. Just you.</p>
         </section>{:else}
         <div class="section-label">
           <h2>Quick log</h2>
@@ -685,7 +671,7 @@
             >Optional note for your next log</label
           ><input
             id="quick-note"
-            placeholder="A note for your next log…"
+            placeholder="Note for next entry"
             maxlength="10000"
             bind:value={quickNote}
           /><button
@@ -753,7 +739,7 @@
             </article>{/each}
         </div>{/if}
       <div class="section-label timeline-label">
-        <h2>Your timeline <span>{dayEntries.length}</span></h2>
+        <h2>Timeline <span>{dayEntries.length}</span></h2>
         <button class="text-button" onclick={openDay}
           >Day note <span>↗</span></button
         >
@@ -774,7 +760,6 @@
               ><span class="entry-arrow">↗</span></button
             >{/each}
         </div>{:else}<div class="empty-timeline">
-          <span>☰</span>
           <p>
             {store.records.some(
               (r) =>
@@ -783,39 +768,23 @@
                 r.data.date === activeDate &&
                 r.data.zero,
             )
-              ? "You marked this as a zero day."
-              : "A quiet page, ready when you are."}
+              ? "Zero day"
+              : "No entries"}
           </p>
-          <small
-            >{store.records.some(
-              (r) =>
-                r.entity === "day" &&
-                !r.deleted &&
-                r.data.date === activeDate &&
-                r.data.zero,
-            )
-              ? "An intentional check-in."
-              : "An empty day is simply unlogged."}</small
-          >
         </div>{/if}
       {#each store.records.filter((r) => r.entity === "day" && !r.deleted && r.data.date === activeDate && r.data.note) as day}<button
           class="day-note"
           onclick={openDay}
-          ><span class="eyebrow">A NOTE TO YOURSELF</span>
+          ><span class="eyebrow">DAY NOTE</span>
           <p>{day.data.note}</p>
           <span>↗</span></button
         >{/each}
     {:else if view === "week"}
       <section class="heading">
         <div>
-          <p class="eyebrow">ROOM FOR REFLECTION</p>
-          <h1>The past seven days.</h1>
+          <h1>History</h1>
         </div>
-        <span class="heading-symbol">↶</span>
       </section>
-      <p class="intro">
-        A small record of your days. No judgments, just a clearer picture.
-      </p>
       <div class="week-list">
         {#each days as date}{@const list = entries.filter(
             (e) =>
@@ -845,10 +814,7 @@
               >{#each items.filter((i) => count(i, list) > 0) as i}<span
                   ><i style={`background:${i.data.color}`}></i>{count(i, list)}
                   {i.data.unit}<small>{i.data.name}</small></span
-                >{:else}<small
-                  >{d?.data.zero
-                    ? "Zero day · checked in"
-                    : "Not logged"}</small
+                >{:else}<small>{d?.data.zero ? "Zero day" : "Not logged"}</small
                 >{/each}{#if d?.data.note}<em>Note added</em>{/if}</span
             ><span>↗</span></button
           >{/each}
@@ -856,8 +822,7 @@
     {:else if view === "items"}
       <section class="heading">
         <div>
-          <p class="eyebrow">YOUR PERSONAL LIST</p>
-          <h1>What you track.</h1>
+          <h1>Items</h1>
         </div>
         <button
           class="round-button"
@@ -865,9 +830,6 @@
           onclick={() => itemForm()}>+</button
         >
       </section>
-      <p class="intro">
-        Your names. Your units. Set up a quick log that feels natural.
-      </p>
       <div class="manage-list">
         {#each items as item, i}<article
             class="manage-item"
@@ -907,27 +869,22 @@
               >
             </div>
           </article>{:else}<div class="empty-card">
-            <h2>An open canvas.</h2>
-            <p>Add your first item to make it yours.</p>
             <button class="primary" onclick={() => itemForm()}
-              >Add an item +</button
+              >Add first item +</button
             >
           </div>{/each}
       </div>
     {:else}
       <section class="heading">
         <div>
-          <p class="eyebrow">A SPACE OF YOUR OWN</p>
-          <h1>The little details.</h1>
+          <h1>Settings</h1>
         </div>
-        <span class="heading-symbol">✳</span>
       </section>
       <div class="settings-grid">
         <section class="settings-card">
-          <span class="eyebrow">YOUR DAY</span>
-          <h2>Time & rhythm</h2>
+          <h2>Timezone</h2>
           <p>
-            {profile.settings.timezone}<br />A new day begins at {String(
+            {profile.settings.timezone}<br />Day starts at {String(
               profile.settings.day_start,
             ).padStart(2, "0")}:00.
           </p>
@@ -937,13 +894,12 @@
               timezone = profile!.settings.timezone;
               boundary = profile!.settings.day_start;
               modal = "settings";
-            }}>Adjust your day ↗</button
+            }}>Change timezone ↗</button
           >
         </section>
         <section class="settings-card">
-          <span class="eyebrow">YOUR RECORD</span>
-          <h2>Keep a copy</h2>
-          <p>Your complete journal, including changes waiting to sync.</p>
+          <h2>Export</h2>
+          <p>Includes unsynced changes.</p>
           <button class="secondary" onclick={() => exportData()}
             >JSON backup ↓</button
           ><button class="text-button" onclick={() => exportData(true)}
@@ -951,8 +907,7 @@
           >
         </section>
         <section class="settings-card">
-          <span class="eyebrow">BRING YOUR HISTORY</span>
-          <h2>A fresh start, together</h2>
+          <h2>Import</h2>
           <p>
             Import a JSON backup or a CSV file. Review everything before saving.
           </p>
@@ -965,12 +920,11 @@
           >
         </section>
         <section class="settings-card">
-          <span class="eyebrow">LOCAL FIRST</span>
-          <h2>Here, with you</h2>
+          <h2>Sync</h2>
           <p>
             {store.queue.length
               ? `${store.queue.length} change${store.queue.length === 1 ? "" : "s"} waiting to sync.`
-              : "Your journal is saved on this device."}<br />{auth
+              : "Saved on this device."}<br />{auth
               ? "Signed in for sync."
               : "Sign in online to sync across devices."}
           </p>
@@ -979,18 +933,14 @@
             onclick={() => (auth ? sync() : (modal = "login"))}
             >{busy ? "Syncing…" : auth ? "Sync now ↻" : "Sign in ↗"}</button
           ><small class="micro"
-            >Offline records may differ from other devices. Device backups
-            matter.</small
+            >Offline records may differ from other devices.</small
           >
         </section>
       </div>
     {/if}
     {#if conflicts.length}<section class="conflicts">
-        <h2>Keep every version</h2>
-        <p>
-          Another copy changed, or a row needs attention. Your local version is
-          safe.
-        </p>
+        <h2>Sync conflicts</h2>
+        <p>Review conflicting or invalid changes.</p>
         {#each conflicts as op}<div>
             <strong
               >{op.entity}: {op.data.name ??
@@ -1038,9 +988,7 @@
       </section>{/if}
     {#if error && !modal}<p class="error" role="alert">{error}</p>{/if}
     <footer class="page-footer">
-      <span>Made for noticing, not judging.</span><span
-        class="sync-state"
-        role="status"
+      <span class="sync-state" role="status"
         >{busy
           ? "Syncing…"
           : store.queue.length
@@ -1050,7 +998,7 @@
     </footer>
   </main>
   <nav class="bottom-nav" aria-label="Main navigation">
-    {#each [["today", "◷", "Today"], ["week", "▥", "Week"], ["items", "◌", "My items"], ["settings", "⚙", "Settings"]] as [key, icon, label]}<button
+    {#each [["today", "◷", "Today"], ["week", "▥", "History"], ["items", "◌", "Items"], ["settings", "⚙", "Settings"]] as [key, icon, label]}<button
         class:active={view === key}
         onclick={() => {
           view = key;
@@ -1110,27 +1058,15 @@
           >{/each}
       </div>
       <div class="dialog-top">
-        <span class="eyebrow">INTAKE · A MOMENT FOR YOU</span
-        >{#if profile}<button
+        {#if profile}<button
             class="icon-button"
             aria-label="Close dialog"
             onclick={close}>×</button
           >{/if}
       </div>
       {#if modal === "login" || modal === "signup"}<h2 id="dialog-title">
-          {modal === "signup"
-            ? firstRun
-              ? "Your space starts here."
-              : "Make a little room."
-            : profile
-              ? "Connect your journal."
-              : "Welcome to your space."}
+          {modal === "signup" ? "Create account" : "Sign in"}
         </h2>
-        <p>
-          {modal === "signup"
-            ? "Create a private account. Your journal begins with an open page, ready to make your own."
-            : "Sign in once online. Your journal stays available offline on this device."}
-        </p>
         <form onsubmit={login}>
           <label
             >Username<input
@@ -1172,7 +1108,7 @@
             type="submit"
             disabled={authSubmitting}
             >{authSubmitting
-              ? "One moment…"
+              ? "Submitting…"
               : modal === "signup"
                 ? "Create account"
                 : "Sign in"} <span>↗</span></button
@@ -1184,7 +1120,7 @@
               modal = "login";
               error = "";
               confirmPassword = "";
-            }}>Already have an account? Sign in ↗</button
+            }}>Sign in ↗</button
           >{:else if registrationAllowed}<button
             class="text-button"
             onclick={() => {
@@ -1213,15 +1149,14 @@
           Account changes require an online sign-in. Passwords are never stored.
         </p>
       {:else if modal === "item"}<h2 id="dialog-title">
-          {editing ? "Make it work for you." : "One thing to notice."}
+          {editing ? "Edit item" : "Add item"}
         </h2>
-        <p>Choose the details that feel right. You can change them anytime.</p>
         <form onsubmit={saveItem}>
           <label
             >Name<input
               required
               maxlength="120"
-              placeholder="What would you like to track?"
+              placeholder="Name"
               bind:value={name}
             /></label
           >
@@ -1230,7 +1165,7 @@
               >Unit<input
                 required
                 maxlength="40"
-                placeholder="Your unit"
+                placeholder="Unit"
                 bind:value={unit}
               /></label
             ><label
@@ -1248,7 +1183,7 @@
           <label
             >Other quick amounts <small>optional · separated by commas</small
             ><input
-              placeholder="Enter your own amounts"
+              placeholder="Comma-separated amounts"
               bind:value={presets}
             /></label
           ><button class="primary" type="submit"
@@ -1256,7 +1191,7 @@
           >
         </form>
       {:else if modal === "log" && target}<h2 id="dialog-title">
-          {editing ? "A small adjustment." : target.data.name}
+          {editing ? "Edit entry" : "Log intake"}
         </h2>
         <form
           onsubmit={(e) => {
@@ -1282,25 +1217,23 @@
             >A note <small>optional</small><textarea
               rows="3"
               maxlength="10000"
-              placeholder="Anything you’d like to remember…"
+              placeholder="Note"
               bind:value={note}></textarea></label
           ><button class="primary" type="submit"
             >{editing ? "Save changes" : "Log intake"} <span>✓</span></button
           >{#if editing}<button
               class="danger-button"
               type="button"
-              onclick={() => remove(editing!)}>Delete this entry</button
+              onclick={() => remove(editing!)}>Delete entry</button
             >{/if}
         </form>
-      {:else if modal === "day"}<h2 id="dialog-title">
-          A note for {activeDate === today ? "today" : activeDate}.
-        </h2>
+      {:else if modal === "day"}<h2 id="dialog-title">Day note</h2>
         <form onsubmit={saveDay}>
           <label
-            >How was your day?<textarea
+            >Note<textarea
               rows="5"
               maxlength="10000"
-              placeholder="A little context, in your own words…"
+              placeholder="Note"
               bind:value={dailyNote}></textarea></label
           ><label class="checkbox"
             ><input
@@ -1308,17 +1241,13 @@
               bind:checked={zero}
               disabled={dayEntries.length > 0}
             /><span
-              >Mark as an intentional zero day<small
-                >{dayEntries.length
-                  ? "This day has entries."
-                  : "A check-in, even when there’s nothing to log."}</small
+              >Mark as zero day<small
+                >{dayEntries.length ? "This day has entries." : ""}</small
               ></span
             ></label
           ><button class="primary">Save day note <span>✓</span></button>
         </form>
-      {:else if modal === "settings"}<h2 id="dialog-title">
-          Your day, your rhythm.
-        </h2>
+      {:else if modal === "settings"}<h2 id="dialog-title">Timezone</h2>
         <p>
           Changing these settings regroups your timeline. Entries keep their
           exact original times.
@@ -1346,9 +1275,7 @@
               Sign in online to change account settings.
             </p>{/if}
         </form>
-      {:else if modal === "import"}<h2 id="dialog-title">
-          Bring your history.
-        </h2>
+      {:else if modal === "import"}<h2 id="dialog-title">Import</h2>
         <p>
           Choose an Intake JSON backup or a CSV with explicit times and item
           IDs. Nothing is saved until you confirm.

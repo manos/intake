@@ -116,12 +116,6 @@ small {
   gap: 7px;
   align-items: center;
 }
-.wordmark span {
-  color: var(--purple);
-  font-family: serif;
-  font-size: 1.65rem;
-  margin-top: -20px;
-}
 .profile-button {
   display: flex;
   align-items: center;
@@ -225,10 +219,6 @@ main {
   font-family: inherit;
   font-size: 0.8rem;
   margin-top: 6px;
-}
-.heading-symbol {
-  font-size: 3rem;
-  color: #b49acb;
 }
 .section-label {
   display: flex;
@@ -492,24 +482,6 @@ main {
   background: #3e3054;
   color: #f1e9ff;
 }
-.welcome {
-  text-align: center;
-  padding: 65px 0;
-}
-.large-mark {
-  font-size: 5rem;
-  color: var(--purple);
-  display: block;
-  margin-bottom: 30px;
-}
-.welcome h1 {
-  font-size: 4.3rem;
-  margin: 20px 0;
-}
-.welcome p:not(.eyebrow) {
-  color: var(--muted);
-  margin-bottom: 28px;
-}
 .primary {
   background: #b297ef;
   color: #1b122c;
@@ -530,7 +502,6 @@ main {
 .primary > span {
   font-size: 1.1rem;
 }
-.welcome .primary,
 .empty-card .primary {
   margin: 22px auto 0;
   min-width: 225px;
@@ -543,12 +514,6 @@ main {
   background:
     radial-gradient(ellipse at top, #362248 0, transparent 65%), #221a2d;
 }
-.empty-card .botanical {
-  font-size: 3.3rem;
-  color: #b89ae8;
-  display: block;
-  margin-bottom: 15px;
-}
 .empty-card h2 {
   font-family: Georgia, serif;
   font-size: 2rem;
@@ -560,12 +525,6 @@ main {
 }
 .empty-card > .micro {
   margin-top: 19px;
-}
-.intro {
-  font-size: 0.88rem;
-  color: var(--muted);
-  margin: -12px 0 35px;
-  max-width: 500px;
 }
 .week-list {
   border-top: 1px solid var(--line);
@@ -1180,19 +1139,11 @@ details p {
     height: 38px;
     flex-shrink: 0;
   }
-  .intro {
-    font-size: 0.8rem;
-    margin-top: -7px;
-    margin-bottom: 25px;
-  }
   .empty-card {
     padding: 29px 15px;
   }
   .empty-card h2 {
     font-size: 1.8rem;
-  }
-  .empty-card .botanical {
-    font-size: 2.8rem;
   }
   .empty-card > p:not(.eyebrow) {
     font-size: 0.76rem;
@@ -1232,19 +1183,6 @@ details p {
     gap: 15px;
     width: max-content;
     max-width: calc(100% - 30px);
-  }
-  .welcome {
-    padding: 50px 0;
-  }
-  .welcome h1 {
-    font-size: 3.5rem;
-    max-width: none;
-  }
-  .large-mark {
-    font-size: 4rem;
-  }
-  .heading-symbol {
-    font-size: 2.5rem;
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -1453,12 +1391,6 @@ details p {
 .date-stamp {
   background: linear-gradient(#362542, #231b2d);
 }
-.wordmark span {
-  color: #be98ff;
-}
-.welcome .large-mark {
-  color: #bb96f2;
-}
 .now-control {
   color: #d2b8ff;
 }
@@ -1479,4 +1411,25 @@ details p {
 }
 .connection.online {
   box-shadow: 0 0 8px #ba91f850;
+}
+
+.sign-in-state {
+  padding: 32px 0;
+}
+.dialog-top {
+  justify-content: flex-end;
+}
+.empty-card {
+  background: none;
+  padding: 20px;
+  border: 1px solid var(--line);
+}
+.empty-card .primary {
+  margin: 0 auto;
+}
+.empty-timeline {
+  padding: 24px 10px;
+}
+.page-footer {
+  justify-content: flex-end;
 }

@@ -272,3 +272,35 @@ it("validates account creation before sending credentials", async () => {
   expect(signupError("me", "longpassword12", "different")).toMatch(/match/);
   expect(signupError("me", "longpassword12", "longpassword12")).toBe("");
 });
+
+it("deletes an entry supplied by reactive UI state and retains undo data", async () => {
+  const journal = new Journal("reactive-delete");
+  const data = {
+    item_id: "item",
+    quantity: "1",
+    unit: "tablet",
+    note: "example",
+  };
+  await journal.put("entry", "entry", data);
+  const reactive = new Proxy((await journal.read()).records[0].data, {});
+  await journal.put("entry", "entry", reactive, true);
+  const state = await journal.read();
+  expect(state.records[0].deleted).toBe(true);
+  expect(state.queue.at(-1)?.deleted).toBe(true);
+  await journal.put("entry", "entry", reactive);
+  expect((await journal.read()).records[0].deleted).toBe(false);
+});
+
+it("persists a profile supplied by reactive UI settings", async () => {
+  const { cacheProfile } = await import("./core");
+  const profile = new Proxy(
+    {
+      id: "reactive-profile",
+      username: "sample",
+      settings: { timezone: "UTC", day_start: 4 },
+    },
+    {},
+  );
+  await cacheProfile(profile);
+  expect((await cacheProfile())?.settings.day_start).toBe(4);
+});
