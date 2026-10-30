@@ -2,7 +2,12 @@
 name = "intake"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn[standard]", "xlwt"]
+dependencies = [
+    "fastapi",
+    "sqlalchemy>=2.0,<3",
+    "uvicorn[standard]",
+    "xlwt",
+]
 license = "MIT"
 [project.optional-dependencies]
 dev = [

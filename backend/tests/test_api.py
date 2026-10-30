@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 import xlrd
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select, text
 
 
 def test_api_contract(tmp_path):
@@ -426,9 +427,11 @@ def test_failed_receipt_rolls_back_record_and_change(client):
     from backend.db import connect
 
     operation = item_operation()
-    with connect(client.app.state.db) as db:
+    with connect(client.app.state.db, write=True) as db:
         db.execute(
-            "CREATE TRIGGER fail_receipt BEFORE INSERT ON receipts BEGIN SELECT RAISE(ABORT,'simulated storage failure'); END"
+            text(
+                "CREATE TRIGGER fail_receipt BEFORE INSERT ON receipts BEGIN SELECT RAISE(ABORT,'simulated storage failure'); END"
+            )
         )
     failing = TestClient(client.app, raise_server_exceptions=False)
     failing.auth = client.auth
@@ -438,10 +441,12 @@ def test_failed_receipt_rolls_back_record_and_change(client):
         ).status_code
         == 500
     )
-    with connect(client.app.state.db) as db:
-        assert db.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 0
-        assert db.execute("SELECT COUNT(*) FROM changes").fetchone()[0] == 0
-        db.execute("DROP TRIGGER fail_receipt")
+    with connect(client.app.state.db, write=True) as db:
+        from backend.tables import Change, Record
+
+        assert db.scalar(select(func.count()).select_from(Record)) == 0
+        assert db.scalar(select(func.count()).select_from(Change)) == 0
+        db.execute(text("DROP TRIGGER fail_receipt"))
     assert send(client, [operation])["results"][0]["status"] == "applied"
 
 
