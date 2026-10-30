@@ -39,7 +39,7 @@ When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external ori
 - Tap its logging button to save now. Enter a note first if desired. Change the time to backdate. Edit or undo afterward.
 - Configure your timezone and when your day begins. Timestamps are retained exactly; grouping into a day never rounds them.
 - Add daily notes without adding an intake. Explicitly confirm a zero-intake day; an empty day is otherwise unrecorded.
-- Review seven days of totals and select any day for its full journal. Each item keeps separate totals in its own units.
+- Explore History through weekly count/amount charts, an exact-time timeline, per-item summaries and a monthly calendar. Filter by dates or item, navigate previous periods, and tap a day or entry for its full journal and notes. Archived items and historical units remain available; quantities in different units stay separate.
 - Archive medicines while retaining history. Imported data is previewed and validated before saving.
 - Export a real Excel 97–2003 **`.xls`** workbook, including locally pending entries. XLS generation requires the backend. JSON backup is available offline; JSON/CSV imports support migration.
 
