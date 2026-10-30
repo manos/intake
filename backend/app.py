@@ -8,7 +8,6 @@ import io
 import json
 import os
 import secrets
-import sqlite3
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,9 +17,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import ValidationError
+from sqlalchemy import delete, func, literal, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from backend.db import connect, hash_password, initialize, insert_user
 from backend.models import MODELS, Operation, Settings, Signup, Sync
+from backend.tables import BrowserSession, Change, Receipt, Record, Throttle, User
 
 MAX_BODY = 4 * 1024 * 1024
 SESSION_SECONDS = 30 * 24 * 60 * 60
@@ -31,13 +33,25 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def record(row):
+def record(row: Record):
     return {
-        "id": row["id"],
-        "entity": row["entity"],
-        "version": row["version"],
-        "deleted": bool(row["deleted"]),
-        "data": json.loads(row["data"]),
+        "id": row.id,
+        "entity": row.entity,
+        "version": row.version,
+        "deleted": bool(row.deleted),
+        "data": json.loads(row.data),
+    }
+
+
+def user_values(row: User | None):
+    if row is None:
+        return None
+    return {
+        "id": row.id,
+        "username": row.username,
+        "salt": row.salt,
+        "password": row.password,
+        "settings": row.settings,
     }
 
 
@@ -127,11 +141,17 @@ def create_app(config_dir=None):
                 and request.headers.get("x-requested-with") == "XMLHttpRequest"
             ):
                 with connect(app.state.db) as db:
-                    row = db.execute(
-                        "SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id "
-                        "WHERE token_hash=? AND expires_at>?",
-                        (hashlib.sha256(token.encode()).hexdigest(), time.time()),
-                    ).fetchone()
+                    row = user_values(
+                        db.scalar(
+                            select(User)
+                            .join(BrowserSession, User.id == BrowserSession.user_id)
+                            .where(
+                                BrowserSession.token_hash
+                                == hashlib.sha256(token.encode()).hexdigest(),
+                                BrowserSession.expires_at > time.time(),
+                            )
+                        )
+                    )
                 if row:
                     return bound_account(request, row)
             # A missing/expired random session is not a password attempt.
@@ -149,22 +169,19 @@ def create_app(config_dir=None):
         host = request.client.host if request.client else "unknown"
         # Address bucket resists username rotation; persisted across process restart.
         key = hashlib.sha256(host.encode()).hexdigest()
-        with connect(app.state.db) as db:
-            db.execute("BEGIN IMMEDIATE")
-            bucket = db.execute("SELECT * FROM throttle WHERE key=?", (key,)).fetchone()
-            if bucket and bucket["blocked_until"] > time.time():
+        with connect(app.state.db, write=True) as db:
+            bucket = db.get(Throttle, key)
+            if bucket and bucket.blocked_until > time.time():
                 raise HTTPException(
                     429,
                     "Too many login attempts",
                     headers={
                         "Retry-After": str(
-                            max(1, int(bucket["blocked_until"] - time.time()))
+                            max(1, int(bucket.blocked_until - time.time()))
                         )
                     },
                 )
-            row = db.execute(
-                "SELECT * FROM users WHERE username=?", (username,)
-            ).fetchone()
+            row = user_values(db.scalar(select(User).where(User.username == username)))
             supplied = hash_password(
                 password[:1024], row["salt"] if row else b"\0" * 32
             )
@@ -173,16 +190,13 @@ def create_app(config_dir=None):
                 or len(password) > 1024
                 or not hmac.compare_digest(supplied, row["password"])
             ):
-                failures = (bucket["failures"] if bucket else 0) + 1
+                failures = (bucket.failures if bucket else 0) + 1
                 until = (
                     time.time() + min(900, 2 ** min(failures - 5, 10))
                     if failures >= 6
                     else 0
                 )
-                db.execute(
-                    "INSERT OR REPLACE INTO throttle VALUES(?,?,?)",
-                    (key, failures, until),
-                )
+                db.merge(Throttle(key=key, failures=failures, blocked_until=until))
                 db.commit()
                 # The app owns the sign-in form. A Basic challenge on its fetch
                 # requests opens the browser's separate credentials dialog.
@@ -191,7 +205,7 @@ def create_app(config_dir=None):
                     "Invalid credentials",
                     headers=challenge(request),
                 )
-            db.execute("DELETE FROM throttle WHERE key=?", (key,))
+            db.execute(delete(Throttle).where(Throttle.key == key))
             return bound_account(request, row)
 
     authenticated_user = Depends(user)
@@ -201,16 +215,20 @@ def create_app(config_dir=None):
         # Rotate this browser's session without ending sessions on other devices.
         previous = request.cookies.get(SESSION_COOKIE, "")
         db.execute(
-            "DELETE FROM sessions WHERE expires_at<=? OR token_hash=?",
-            (time.time(), hashlib.sha256(previous.encode()).hexdigest()),
+            delete(BrowserSession).where(
+                or_(
+                    BrowserSession.expires_at <= time.time(),
+                    BrowserSession.token_hash
+                    == hashlib.sha256(previous.encode()).hexdigest(),
+                )
+            )
         )
-        db.execute(
-            "INSERT INTO sessions VALUES(?,?,?)",
-            (
-                hashlib.sha256(token.encode()).hexdigest(),
-                user_id,
-                time.time() + SESSION_SECONDS,
-            ),
+        db.add(
+            BrowserSession(
+                token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                user_id=user_id,
+                expires_at=time.time() + SESSION_SECONDS,
+            )
         )
         response.set_cookie(
             SESSION_COOKIE,
@@ -227,7 +245,7 @@ def create_app(config_dir=None):
     def session(request: Request, response: Response, account=authenticated_user):
         if not request.headers.get("authorization"):
             raise HTTPException(401, "Password required", headers=challenge(request))
-        with connect(app.state.db) as db:
+        with connect(app.state.db, write=True) as db:
             browser_session(db, response, request, account["id"])
         return me(account)
 
@@ -236,10 +254,12 @@ def create_app(config_dir=None):
         if request.headers.get("x-requested-with") != "XMLHttpRequest":
             raise HTTPException(403, "App request required")
         token = request.cookies.get(SESSION_COOKIE, "")
-        with connect(app.state.db) as db:
+        with connect(app.state.db, write=True) as db:
             db.execute(
-                "DELETE FROM sessions WHERE token_hash=?",
-                (hashlib.sha256(token.encode()).hexdigest(),),
+                delete(BrowserSession).where(
+                    BrowserSession.token_hash
+                    == hashlib.sha256(token.encode()).hexdigest()
+                )
             )
         response = Response(status_code=204)
         response.delete_cookie(SESSION_COOKIE, path="/api")
@@ -248,7 +268,7 @@ def create_app(config_dir=None):
     @app.get("/health")
     def health():
         with connect(app.state.db) as db:
-            db.execute("SELECT 1")
+            db.execute(select(literal(1)))
         return {"status": "ok"}
 
     def signup_attempt(request: Request):
@@ -256,40 +276,34 @@ def create_app(config_dir=None):
         # neither consume nor clear the existing sign-in throttle.
         host = request.client.host if request.client else "unknown"
         key = "signup:" + hashlib.sha256(host.encode()).hexdigest()
-        with connect(app.state.db) as db:
-            db.execute("BEGIN IMMEDIATE")
+        with connect(app.state.db, write=True) as db:
             # Read time after acquiring the lock: a concurrent request may have
             # written an unblocked timestamp while this request was waiting.
             now = time.time()
-            bucket = db.execute("SELECT * FROM throttle WHERE key=?", (key,)).fetchone()
-            if bucket and bucket["blocked_until"] > now:
+            bucket = db.get(Throttle, key)
+            if bucket and bucket.blocked_until > now:
                 raise HTTPException(
                     429,
                     "Too many registration attempts",
                     headers={
-                        "Retry-After": str(max(1, int(bucket["blocked_until"] - now)))
+                        "Retry-After": str(max(1, int(bucket.blocked_until - now)))
                     },
                 )
             # A quiet half hour starts a new allowance. Successful submissions
             # count too, so opt-in registration cannot create unbounded users.
             attempts = (
-                bucket["failures"]
-                if bucket and bucket["blocked_until"] > now - 1800
-                else 0
+                bucket.failures if bucket and bucket.blocked_until > now - 1800 else 0
             )
             attempts += 1
             cooldown = min(900, 2 ** min(attempts - 5, 10)) if attempts >= 6 else 0
-            db.execute(
-                "INSERT OR REPLACE INTO throttle VALUES(?,?,?)",
-                (key, attempts, now + cooldown),
-            )
+            db.merge(Throttle(key=key, failures=attempts, blocked_until=now + cooldown))
 
     registration_attempt = Depends(signup_attempt)
 
     @app.get("/api/registration")
     def registration():
         with connect(app.state.db) as db:
-            first_run = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
+            first_run = db.scalar(select(User.id).limit(1)) is None
         return {"allowed": first_run or allow_signup, "first_run": first_run}
 
     @app.post("/api/signup", status_code=201)
@@ -299,14 +313,10 @@ def create_app(config_dir=None):
         response: Response,
         attempt=registration_attempt,
     ):
-        with connect(app.state.db) as db:
+        with connect(app.state.db, write=True) as db:
             # The lock covers bootstrap admission and insertion together. A
             # cached registration response never authorizes a later write.
-            db.execute("BEGIN IMMEDIATE")
-            if (
-                not allow_signup
-                and db.execute("SELECT 1 FROM users LIMIT 1").fetchone()
-            ):
+            if not allow_signup and db.scalar(select(User.id).limit(1)):
                 raise HTTPException(403, "Registration is closed")
             try:
                 profile = insert_user(
@@ -314,7 +324,7 @@ def create_app(config_dir=None):
                 )
                 browser_session(db, response, request, profile["id"])
                 return profile
-            except sqlite3.IntegrityError:
+            except IntegrityError:
                 raise HTTPException(409, "Username is unavailable") from None
 
     @app.get("/api/me")
@@ -328,10 +338,11 @@ def create_app(config_dir=None):
     @app.put("/api/settings")
     def settings(payload: Settings, account=authenticated_user):
         data = payload.model_dump()
-        with connect(app.state.db) as db:
+        with connect(app.state.db, write=True) as db:
             db.execute(
-                "UPDATE users SET settings=? WHERE id=?",
-                (canonical(data), account["id"]),
+                update(User)
+                .where(User.id == account["id"])
+                .values(settings=canonical(data))
             )
         return data
 
@@ -340,9 +351,11 @@ def create_app(config_dir=None):
         uid = account["id"]
         results = []
         with connect(app.state.db) as db:
-            latest = db.execute(
-                "SELECT COALESCE(MAX(seq),0) FROM changes WHERE user_id=?", (uid,)
-            ).fetchone()[0]
+            latest = db.scalar(
+                select(func.coalesce(func.max(Change.seq), 0)).where(
+                    Change.user_id == uid
+                )
+            )
         if payload.cursor > latest:
             raise HTTPException(409, {"code": "cursor_reset", "cursor": 0})
         for raw in payload.operations:
@@ -360,15 +373,12 @@ def create_app(config_dir=None):
                     }
                 )
                 continue
-            with connect(app.state.db) as db:
-                db.execute("BEGIN IMMEDIATE")
-                receipt = db.execute(
-                    "SELECT * FROM receipts WHERE user_id=? AND id=?", (uid, op.id)
-                ).fetchone()
+            with connect(app.state.db, write=True) as db:
+                receipt = db.get(Receipt, (uid, op.id))
                 if receipt:
                     results.append(
-                        json.loads(receipt["result"])
-                        if receipt["payload"] == encoded
+                        json.loads(receipt.result)
+                        if receipt.payload == encoded
                         else {
                             "id": op.id,
                             "status": "invalid",
@@ -376,29 +386,23 @@ def create_app(config_dir=None):
                         }
                     )
                     continue
-                current = db.execute(
-                    "SELECT * FROM records WHERE user_id=? AND id=?",
-                    (uid, op.record_id),
-                ).fetchone()
+                current = db.get(Record, (uid, op.record_id))
                 result = {"id": op.id, "status": "invalid", "message": "Invalid record"}
                 try:
-                    if current and current["entity"] != op.entity:
+                    if current and current.entity != op.entity:
                         raise ValueError("Record entity cannot change")
                     data = (
                         MODELS[op.entity].model_validate(op.data).model_dump()
                         if not op.deleted
-                        else (json.loads(current["data"]) if current else {})
+                        else (json.loads(current.data) if current else {})
                     )
                     if op.deleted and not current:
                         raise ValueError("Cannot delete missing record")
                     if op.entity == "entry" and not op.deleted:
-                        parent = db.execute(
-                            "SELECT entity FROM records WHERE user_id=? AND id=?",
-                            (uid, data["item_id"]),
-                        ).fetchone()
-                        if not parent or parent["entity"] != "item":
+                        parent = db.get(Record, (uid, data["item_id"]))
+                        if not parent or parent.entity != "item":
                             raise ValueError("Unknown item")
-                    if (current["version"] if current else 0) != op.base_version:
+                    if (current.version if current else 0) != op.base_version:
                         result = {"id": op.id, "status": "conflict"}
                         if current:
                             result["record"] = record(current)
@@ -410,41 +414,38 @@ def create_app(config_dir=None):
                             "deleted": op.deleted,
                             "data": data,
                         }
-                        db.execute(
-                            "INSERT OR REPLACE INTO records VALUES(?,?,?,?,?,?)",
-                            (
-                                uid,
-                                op.record_id,
-                                op.entity,
-                                saved["version"],
-                                op.deleted,
-                                canonical(data),
-                            ),
-                        )
-                        db.execute(
-                            "INSERT INTO changes(user_id,record) VALUES(?,?)",
-                            (uid, canonical(saved)),
-                        )
+                        if current is None:
+                            current = Record(
+                                user_id=uid, id=op.record_id, entity=op.entity
+                            )
+                            db.add(current)
+                        current.version = saved["version"]
+                        current.deleted = int(op.deleted)
+                        current.data = canonical(data)
+                        db.add(Change(user_id=uid, record=canonical(saved)))
                         result = {"id": op.id, "status": "applied", "record": saved}
                 except (ValueError, ValidationError):
                     pass
-                db.execute(
-                    "INSERT INTO receipts VALUES(?,?,?,?)",
-                    (uid, op.id, encoded, canonical(result)),
+                db.add(
+                    Receipt(
+                        user_id=uid, id=op.id, payload=encoded, result=canonical(result)
+                    )
                 )
                 results.append(result)
         with connect(app.state.db) as db:
-            rows = db.execute(
-                "SELECT seq,record FROM changes WHERE user_id=? AND seq>? ORDER BY seq LIMIT 501",
-                (uid, payload.cursor),
-            ).fetchall()
-        page = rows[:500]
-        return {
-            "results": results,
-            "changes": [json.loads(r["record"]) for r in page],
-            "cursor": page[-1]["seq"] if page else payload.cursor,
-            "has_more": len(rows) > 500,
-        }
+            rows = db.scalars(
+                select(Change)
+                .where(Change.user_id == uid, Change.seq > payload.cursor)
+                .order_by(Change.seq)
+                .limit(501)
+            ).all()
+            page = rows[:500]
+            return {
+                "results": results,
+                "changes": [json.loads(row.record) for row in page],
+                "cursor": page[-1].seq if page else payload.cursor,
+                "has_more": len(rows) > 500,
+            }
 
     @app.post("/api/export")
     def export(payload: dict, account=authenticated_user):

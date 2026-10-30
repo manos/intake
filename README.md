@@ -69,6 +69,6 @@ CONFIG_DIR=/tmp/intake-dev uv run python -m backend.cli create-user yourname
 CONFIG_DIR=/tmp/intake-dev uv run uvicorn backend.app:app --port 8000
 ```
 
-FastAPI serves the built frontend and API from one origin. SQLite stores users, versioned records, idempotency receipts and a change log. The client uses an account-scoped IndexedDB database and transactional outbox. No cloud service, CDN or analytics is involved.
+FastAPI serves the built frontend and API from one origin. SQLAlchemy manages users, versioned records, idempotency receipts and the change log, using SQLite under `/config` by default. Existing SQLite files are opened in place without conversion. The client uses an account-scoped IndexedDB database and transactional outbox. No cloud service, CDN or analytics is involved.
 
 Read [design](docs/design.md) and [security](SECURITY.md) before contributing. Tests cover retries, conflicts, account isolation, timestamp boundaries and spreadsheet output. Use synthetic fixtures only. MIT licensed; see [LICENSE](LICENSE).

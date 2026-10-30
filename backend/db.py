@@ -4,41 +4,69 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
+from sqlalchemy import URL, create_engine, event
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
+
 from backend.models import USERNAME_PATTERN
+from backend.tables import Base, User
+
+
+@lru_cache(maxsize=32)
+def engine_for(path):
+    engine = create_engine(
+        URL.create("sqlite+pysqlite", database=str(Path(path).resolve())),
+        connect_args={"timeout": 30, "check_same_thread": False},
+        poolclass=NullPool,
+        hide_parameters=True,
+    )
+
+    @event.listens_for(engine, "connect")
+    def configure(connection, _):
+        connection.isolation_level = None
+        cursor = connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA journal_mode=WAL")
+        finally:
+            cursor.close()
+
+    @event.listens_for(engine, "begin")
+    def begin(connection):
+        connection.exec_driver_sql(
+            "BEGIN IMMEDIATE"
+            if connection.get_execution_options().get("sqlite_write")
+            else "BEGIN"
+        )
+
+    return engine
 
 
 @contextmanager
-def connect(path):
-    db = sqlite3.connect(path, timeout=30)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA foreign_keys=ON")
-    try:
-        with db:
-            yield db
-    finally:
-        db.close()
+def connect(path, *, write=False):
+    """One short unit of work; acquire the writer lock before reading mutable state."""
+    with (
+        engine_for(path).connect().execution_options(sqlite_write=write) as connection,
+        Session(connection, expire_on_commit=False) as session,
+        session.begin(),
+    ):
+        if write:
+            # Session.begin() is lazy: acquire BEGIN IMMEDIATE before callers
+            # sample time or make admission decisions, not at their first query.
+            session.connection()
+        yield session
 
 
 def initialize(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / "intake.sqlite3"
-    with connect(path) as db:
-        db.executescript("""
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, salt BLOB NOT NULL, password BLOB NOT NULL, settings TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS records(user_id TEXT NOT NULL, id TEXT NOT NULL, entity TEXT NOT NULL, version INTEGER NOT NULL, deleted INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(user_id,id));
-        CREATE TABLE IF NOT EXISTS changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, record TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS user_changes ON changes(user_id,seq);
-        CREATE TABLE IF NOT EXISTS receipts(user_id TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(user_id,id));
-        CREATE TABLE IF NOT EXISTS throttle(key TEXT PRIMARY KEY, failures INTEGER NOT NULL, blocked_until REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at REAL NOT NULL);
-        """)
+    Base.metadata.create_all(engine_for(path))
     os.chmod(path, 0o600)
     return path
 
@@ -54,7 +82,7 @@ def create_user(path, username, password):
         )
     if not 12 <= len(password) <= 1024:
         raise ValueError("Password must contain 12–1024 characters")
-    with connect(path) as db:
+    with connect(path, write=True) as db:
         insert_user(db, username, password, "UTC")
 
 
@@ -63,10 +91,16 @@ def insert_user(db, username, password, timezone):
     salt = os.urandom(32)
     user_id = str(uuid4())
     settings = {"timezone": timezone, "day_start": 0}
-    db.execute(
-        "INSERT INTO users VALUES(?,?,?,?,?)",
-        (user_id, username, salt, hash_password(password, salt), json.dumps(settings)),
+    db.add(
+        User(
+            id=user_id,
+            username=username,
+            salt=salt,
+            password=hash_password(password, salt),
+            settings=json.dumps(settings),
+        )
     )
+    db.flush()
     return {"id": user_id, "username": username, "settings": settings}
 
 
@@ -76,8 +110,17 @@ def backup(path, target):
     descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.close(descriptor)
     try:
-        with connect(path) as source, sqlite3.connect(target) as destination:
-            source.backup(destination)
+        # SQLAlchemy has no cross-dialect online-backup operation. Use SQLite's
+        # consistent backup through its SQLAlchemy-managed driver connections.
+        source = engine_for(path).raw_connection()
+        try:
+            destination = engine_for(target).raw_connection()
+            try:
+                source.driver_connection.backup(destination.driver_connection)
+            finally:
+                destination.close()
+        finally:
+            source.close()
     except Exception:
         target.unlink(missing_ok=True)
         raise

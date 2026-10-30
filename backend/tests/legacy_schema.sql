@@ -1,0 +1,8 @@
+PRAGMA journal_mode=WAL;
+CREATE TABLE users(id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, salt BLOB NOT NULL, password BLOB NOT NULL, settings TEXT NOT NULL);
+CREATE TABLE records(user_id TEXT NOT NULL, id TEXT NOT NULL, entity TEXT NOT NULL, version INTEGER NOT NULL, deleted INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(user_id,id));
+CREATE TABLE changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, record TEXT NOT NULL);
+CREATE INDEX user_changes ON changes(user_id,seq);
+CREATE TABLE receipts(user_id TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(user_id,id));
+CREATE TABLE throttle(key TEXT PRIMARY KEY, failures INTEGER NOT NULL, blocked_until REAL NOT NULL);
+CREATE TABLE sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at REAL NOT NULL);

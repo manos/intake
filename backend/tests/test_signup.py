@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 PASSWORD = "synthetic registration password"
 
@@ -67,7 +68,9 @@ def test_parallel_bootstrap_creates_only_one(tmp_path, monkeypatch):
     from backend.db import connect
 
     with connect(client.app.state.db) as db:
-        assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1
+        from backend.tables import User
+
+        assert db.scalar(select(func.count()).select_from(User)) == 1
 
 
 @pytest.mark.parametrize(

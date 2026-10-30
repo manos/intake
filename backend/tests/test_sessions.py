@@ -5,8 +5,10 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select, update
 
 from backend.db import connect, create_user
+from backend.tables import BrowserSession
 
 PASSWORD = "synthetic session password"
 HEADERS = {"X-Requested-With": "XMLHttpRequest"}
@@ -76,9 +78,9 @@ def test_cookie_security_and_only_hash_stored(tmp_path, monkeypatch, secure):
         and PASSWORD not in response.text
     )
     with connect(client.app.state.db) as db:
-        row = db.execute("SELECT * FROM sessions").fetchone()
-        assert row["token_hash"] == hashlib.sha256(token.encode()).hexdigest()
-        assert token not in str(dict(row))
+        row = db.scalar(select(BrowserSession))
+        assert row.token_hash == hashlib.sha256(token.encode()).hexdigest()
+        assert token not in (row.token_hash, row.user_id)
 
 
 def test_expired_revoked_and_forged_sessions_cannot_sync(tmp_path, monkeypatch):
@@ -91,8 +93,8 @@ def test_expired_revoked_and_forged_sessions_cannot_sync(tmp_path, monkeypatch):
     assert client.get("/api/me").status_code == 401
     client.cookies.clear()
     login(client)
-    with connect(client.app.state.db) as db:
-        db.execute("UPDATE sessions SET expires_at=0")
+    with connect(client.app.state.db, write=True) as db:
+        db.execute(update(BrowserSession).values(expires_at=0))
     assert client.get("/api/me").status_code == 401
     client.cookies.set("intake_session", "forged", path="/api")
     assert client.get("/api/me").status_code == 401
