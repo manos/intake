@@ -20,22 +20,11 @@ The user command prompts for a password without displaying it. Open **http://loc
 
 The named `intake_config` volume is mounted at `/config` and survives container recreation. The server runs as UID/GID 10001. For a bind mount, replace the volume with `./config:/config` and give UID 10001 ownership of that directory before starting. Use local disk rather than a network filesystem for SQLite. Do not commit your config directory or exported journal.
 
-## Private access through Tailscale
+## Offline access and reverse proxies
 
-The optional sidecar profile provides a dedicated Tailscale node and Serve endpoint, with Funnel explicitly disabled. No internet-facing publication is needed.
+Open the app once while connected before using it offline. Install it using your browser's Add to Home Screen option. Keep the same origin on subsequent visits, because browser storage belongs to an origin. Offline reopening on another device requires a trusted HTTPS origin; localhost works for development. Sync while the app is open or reopened is supported; closed-app background sync depends on the browser.
 
-```sh
-docker compose --profile tailscale up -d
-docker compose exec tailscale tailscale up
-```
-
-Follow the login URL printed by Tailscale using your personal tailnet. Enable tailnet HTTPS certificates if prompted. Obtain the device's HTTPS hostname from `docker compose exec tailscale tailscale status`. Set `PUBLIC_ORIGIN` to that complete `https://…ts.net` origin when starting the app, so its origin protection recognizes your proxy:
-
-```sh
-PUBLIC_ORIGIN=https://your-device.your-tailnet.ts.net docker compose --profile tailscale up -d
-```
-
-Use that same origin on every visit; browser storage belongs to an origin. Open it once while connected, then install using your browser's Add to Home Screen option. The service worker enables reopening offline. On a phone, ordinary HTTP LAN URLs do not enable that service worker. Sync while the app is open or reopened is supported; closed-app background sync depends on the browser. Basic auth remains required inside the tailnet.
+When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external origin, such as `https://intake.example.test`. The app recognizes this origin for request protection without trusting arbitrary forwarded headers.
 
 ## Everyday use
 

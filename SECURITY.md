@@ -1,6 +1,6 @@
 # Security
 
-Intake is designed for a trusted personal device accessing a privately hosted server. Keep it on loopback, a private LAN, or Tailscale. Use HTTPS for Basic authentication outside loopback and for the offline service worker on another device. The Tailscale profile uses Serve with Funnel disabled.
+Intake is designed for a trusted personal device accessing a privately hosted server. Keep it on loopback or a private network. Use HTTPS for Basic authentication outside loopback and for the offline service worker on another device.
 
 There are no initial users or medicines. User creation is an operator command with an interactive password prompt. The backend stores password hashes. The interface holds HTTP Basic credentials in memory only. Authenticated API responses are not service-worker cached. Each user's locally saved journal and pending queue are isolated by server origin and immutable user ID.
 
@@ -14,4 +14,4 @@ Report vulnerabilities privately using the repository's Security Advisory featur
 
 ## Dependency review
 
-The initial release's Python runtime dependency audit reported no known vulnerabilities. The npm audit reported two low-severity development-tool advisories in `@sveltejs/vite-plugin-svelte` and its `deepmerge` dependency, with no upstream fix available. This dependency processes the trusted build configuration and is not included in the runtime container. These advisories remain open; a clean backend audit does not mean the build-tool advisory has been remediated. Container OS packages and the optional Tailscale image were not vulnerability-scanned as part of this release.
+The initial release's Python runtime dependency audit reported no known vulnerabilities. The npm audit reported two low-severity development-tool advisories in `@sveltejs/vite-plugin-svelte` and its `deepmerge` dependency, with no upstream fix available. This dependency processes the trusted build configuration and is not included in the runtime container. These advisories remain open; a clean backend audit does not mean the build-tool advisory has been remediated. Container OS packages were not vulnerability-scanned as part of this release.

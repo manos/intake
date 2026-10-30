@@ -249,6 +249,7 @@ export async function api(
     method: method ?? (body ? "POST" : "GET"),
     headers: {
       Authorization: auth,
+      "X-Requested-With": "XMLHttpRequest",
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -264,7 +265,9 @@ export async function api(
   if (!response.ok)
     throw new Error(
       response.status === 401
-        ? "Sign in again to sync."
+        ? path === "/me"
+          ? "Username or password wasn’t recognized."
+          : "Sign in again to sync."
         : `Server could not complete this request (${response.status}).`,
     );
   return response;

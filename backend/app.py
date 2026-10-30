@@ -149,12 +149,17 @@ def create_app(config_dir=None):
                     (key, failures, until),
                 )
                 db.commit()
+                # The app owns the sign-in form. A Basic challenge on its fetch
+                # requests opens the browser's separate credentials dialog.
+                challenge = (
+                    {}
+                    if request.headers.get("x-requested-with") == "XMLHttpRequest"
+                    else {"WWW-Authenticate": 'Basic realm="Intake", charset="UTF-8"'}
+                )
                 raise HTTPException(
                     401,
                     "Invalid credentials",
-                    headers={
-                        "WWW-Authenticate": 'Basic realm="Intake", charset="UTF-8"'
-                    },
+                    headers=challenge,
                 )
             db.execute("DELETE FROM throttle WHERE key=?", (key,))
             return dict(row)
