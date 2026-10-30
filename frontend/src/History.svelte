@@ -51,6 +51,17 @@
   });
   const entries = $derived(range.days.flatMap((d) => d.entries));
   const summary = $derived(historySummary(range.days));
+  const showEntryNotes = $derived(!(mode === "item" && chosen));
+  const notedDays = $derived(
+    [...range.days]
+      .reverse()
+      .filter(
+        (day) =>
+          day.note.trim() ||
+          (showEntryNotes &&
+            day.entries.some((entry) => entry.data.note?.trim())),
+      ),
+  );
   const calendar = $derived(
     mode === "calendar" && !range.error ? calendarDates(from) : [],
   );
@@ -480,7 +491,7 @@
             >
             <div>
               <strong>{entry.data.item_name}</strong>{#if entry.data.note}<small
-                  >{entry.data.note}</small
+                  class="history-note-text">{entry.data.note}</small
                 >{/if}
             </div>
             <span>{entry.data.quantity} <small>{entry.data.unit}</small></span
@@ -490,4 +501,41 @@
         No entries in this range.
       </p>{/each}
   {/if}
+  {#if notedDays.length}<section
+      class="history-notes"
+      aria-label="History notes"
+    >
+      <h2>Notes</h2>
+      {#each notedDays as day}<section class="history-notes-day">
+          <button class="history-entry-date" onclick={() => onday(day.date)}
+            >{dateLabel(day.date, {
+              weekday: "long",
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })} ↗</button
+          >
+          {#if day.note.trim()}<button
+              class="history-day-note"
+              onclick={() => onday(day.date)}
+              ><span class="eyebrow">DAY NOTE</span>
+              <p class="history-note-text">{day.note}</p></button
+            >{/if}
+          {#if showEntryNotes}{#each [...day.entries]
+              .reverse()
+              .filter((entry) => entry.data.note?.trim()) as entry}<button
+                class="history-noted-entry"
+                onclick={() => onentry(entry)}
+              >
+                <span class="history-note-meta"
+                  ><time title={clock(entry.data.occurred_at, true)}
+                    >{clock(entry.data.occurred_at)}</time
+                  ><i style={`background:${entry.data.color}`}></i><strong
+                    >{entry.data.item_name}</strong
+                  ><span>{entry.data.quantity} {entry.data.unit}</span></span
+                >
+                <p class="history-note-text">{entry.data.note}</p>
+              </button>{/each}{/if}
+        </section>{/each}
+    </section>{/if}
 {/if}
