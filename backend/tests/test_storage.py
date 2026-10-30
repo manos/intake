@@ -4,7 +4,9 @@ import hashlib
 import json
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 
 import pytest
@@ -39,6 +41,28 @@ def test_orm_transaction_rolls_back_and_subsequent_write_succeeds(tmp_path):
     with connect(path) as session:
         assert session.get(User, "failed") is None
     create_user(path, "next", "synthetic storage password")
+
+
+def test_writer_unit_of_work_waits_for_lock_before_entering_body(tmp_path):
+    path = initialize(tmp_path)
+    started, entered = Event(), Event()
+
+    def waiting_writer():
+        started.set()
+        with connect(path, write=True):
+            entered.set()
+
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        with sqlite3.connect(path) as existing:
+            existing.execute("BEGIN IMMEDIATE")
+            waiting = workers.submit(waiting_writer)
+            assert started.wait(5)
+            try:
+                assert not entered.wait(0.2)
+            finally:
+                existing.rollback()
+        waiting.result(timeout=5)
+    assert entered.is_set()
 
 
 def test_old_session_and_receipt_survive_orm_adoption(tmp_path):

@@ -55,6 +55,10 @@ def connect(path, *, write=False):
         Session(connection, expire_on_commit=False) as session,
         session.begin(),
     ):
+        if write:
+            # Session.begin() is lazy: acquire BEGIN IMMEDIATE before callers
+            # sample time or make admission decisions, not at their first query.
+            session.connection()
         yield session
 
 
