@@ -128,9 +128,13 @@
     const active = journal;
     if (!active) return;
     const next = await active.read();
-    if (active === journal) store = next;
+    if (active === journal) {
+      store = next;
+      if (next.queue.length) syncNeeded = true;
+    }
   }
-  let syncError = $state("");
+  let syncError = $state(""),
+    syncNeeded = $state(false);
   function syncPending() {
     if (!auth) {
       username = profile?.username ?? "";
@@ -149,10 +153,12 @@
       await synchronize(active, credential);
       if (active !== journal || credential !== auth) return;
       await refresh();
-      if (active === journal)
+      if (active === journal) {
+        syncNeeded = store.queue.length > 0;
         status = store.queue.length
           ? "Some changes still need attention."
           : "Synced just now";
+      }
     } catch (e) {
       if (active === journal) {
         await refresh();
@@ -181,6 +187,7 @@
       const current = expected;
       await current.put(entity, id, data, deleted);
       if (current !== journal) return false;
+      syncNeeded = true;
       await refresh();
       if (current !== journal) return false;
       void sync();
@@ -229,6 +236,7 @@
       selected = "";
       store = { records: [], queue: [], cursor: 0 };
       syncError = "";
+      syncNeeded = false;
       profile = p;
       auth = credential;
       password = "";
@@ -647,15 +655,15 @@
     >
   </header>
   <div class="sync-header">
-    {#if store.queue.length > 0}<section
+    {#if store.queue.length > 0 || syncNeeded}<section
         class="pending-banner"
         aria-label="Pending changes"
       >
         <div class="pending-copy">
           <strong
-            >{store.queue.length} pending {store.queue.length === 1
-              ? "change"
-              : "changes"}</strong
+            >{store.queue.length
+              ? `${store.queue.length} pending ${store.queue.length === 1 ? "change" : "changes"}`
+              : "Sync incomplete"}</strong
           ><span role="status" aria-live="polite"
             >{busy
               ? "Syncing…"
