@@ -1496,6 +1496,65 @@ details p {
 .history-back {
   margin-top: 24px;
 }
+.history-notes {
+  margin-top: 30px;
+}
+.history-notes > h2 {
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+.history-notes-day {
+  padding-bottom: 18px;
+}
+.history-day-note,
+.history-noted-entry {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #211a2b;
+  margin-top: 8px;
+}
+.history-day-note:hover,
+.history-noted-entry:hover {
+  background: #2b2037;
+}
+.history-note-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.history-day-note p,
+.history-noted-entry p {
+  margin-top: 8px;
+  color: #ded3ed;
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+.history-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.history-note-meta strong {
+  color: #eee6f9;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.history-note-meta i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.history-note-meta > span {
+  margin-left: auto;
+  overflow-wrap: anywhere;
+}
 .history-back + .heading {
   padding-top: 20px;
 }
