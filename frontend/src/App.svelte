@@ -109,6 +109,12 @@
     checkingRegistration = $state(false),
     confirmPassword = $state(""),
     authSubmitting = $state(false);
+  const LOGGED_TOAST_MS = 3000;
+  $effect(() => {
+    if (!undo || undoKind !== "log") return;
+    const timer = setTimeout(() => (undo = undefined), LOGGED_TOAST_MS);
+    return () => clearTimeout(timer);
+  });
   async function checkRegistration() {
     checkingRegistration = true;
     registrationError = "";
