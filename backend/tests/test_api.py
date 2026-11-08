@@ -491,3 +491,113 @@ def test_native_basic_clients_keep_authentication_challenge(client):
     response = client.get("/api/me")
     assert response.status_code == 401
     assert response.headers["www-authenticate"].startswith("Basic ")
+
+
+def entry_operation(item_id, **changes):
+    data = {
+        "item_id": item_id,
+        "quantity": "1",
+        "unit": "unit",
+        "item_name": "Purged Name",
+        "color": "#123abc",
+        "occurred_at": "2026-01-01T12:00:00+00:00",
+        "timezone": "UTC",
+        "note": "private purged note",
+    }
+    data.update(changes.pop("data", {}))
+    return item_operation(entity="entry", data=data, **changes)
+
+
+def stored_text(client):
+    db = client.app.state.db
+    with sqlite3.connect(db) as conn:
+        return " ".join(
+            str(row)
+            for table in ("records", "changes", "receipts")
+            for row in conn.execute(f"select * from {table}")
+        )
+
+
+def test_delete_item_purges_item_entries_history_and_receipts(client):
+    item = item_operation(data=dict(item_operation()["data"], name="Purged Name"))
+    kept = item_operation(data=dict(item_operation()["data"], name="Kept Name"))
+    send(client, [item, kept])
+    logged = entry_operation(item["record_id"])
+    edited = dict(
+        logged,
+        id=str(uuid4()),
+        base_version=1,
+        data=dict(logged["data"], note="edited purged note"),
+    )
+    removed = entry_operation(item["record_id"])
+    send(client, [logged, edited, removed])
+    send(client, [dict(removed, id=str(uuid4()), base_version=1, deleted=True)])
+    other = entry_operation(
+        kept["record_id"], data={"item_name": "Kept Name", "note": "kept note"}
+    )
+    send(client, [other])
+    cursor = send(client, [])["cursor"]
+
+    response = client.delete(f"/api/items/{item['record_id']}")
+
+    assert response.status_code == 200
+    assert response.json() == {"entries": 1}
+    text = stored_text(client)
+    for secret in ("Purged Name", "purged note"):
+        assert secret not in text
+    assert "Kept Name" in text and "kept note" in text
+    purged_ids = {item["record_id"], logged["record_id"], removed["record_id"]}
+    tombstones = send(client, [], cursor)["changes"]
+    assert {row["id"] for row in tombstones} == purged_ids
+    assert all(row["deleted"] and row["data"] == {} for row in tombstones)
+    fresh = {row["id"]: row for row in send(client, [])["changes"]}
+    assert fresh[other["record_id"]]["data"]["note"] == "kept note"
+    assert all(fresh[i]["data"] == {} for i in purged_ids)
+
+
+def test_purged_item_rejects_retries_new_entries_and_edits(client):
+    item = item_operation()
+    entry = entry_operation(item["record_id"])
+    send(client, [item, entry])
+    assert client.delete(f"/api/items/{item['record_id']}").status_code == 200
+
+    late_entry = entry_operation(item["record_id"])
+    edit = dict(item, id=str(uuid4()), base_version=2)
+    undelete_entry = dict(entry, id=str(uuid4()), base_version=2)
+    results = send(client, [item, entry, late_entry, edit, undelete_entry])["results"]
+
+    assert [r["status"] for r in results] == ["invalid"] * 5
+    text = stored_text(client)
+    assert "Purged" not in text and "private" not in text
+    again = client.delete(f"/api/items/{item['record_id']}")
+    assert again.status_code == 200 and again.json() == {"entries": 0}
+
+
+def test_delete_unsynced_item_blocks_its_later_creation(client):
+    item = item_operation()
+    assert client.delete(f"/api/items/{item['record_id']}").json() == {"entries": 0}
+    assert send(client, [item])["results"][0]["status"] == "invalid"
+
+
+def test_delete_item_rejects_other_entities_and_bad_ids(client):
+    item = item_operation()
+    entry = entry_operation(item["record_id"])
+    send(client, [item, entry])
+    assert client.delete(f"/api/items/{entry['record_id']}").status_code == 404
+    assert client.delete("/api/items/not-a-uuid").status_code == 404
+    assert "private purged note" in stored_text(client)
+
+
+def test_delete_item_is_scoped_to_the_signed_in_account(client):
+    from backend.db import create_user
+
+    item = item_operation()
+    send(client, [item, entry_operation(item["record_id"])])
+    create_user(client.app.state.db, "other", "another synthetic password")
+    response = client.delete(
+        f"/api/items/{item['record_id']}",
+        auth=("other", "another synthetic password"),
+    )
+    assert response.status_code == 200
+    assert "private purged note" in stored_text(client)
+    assert send(client, [])["changes"][0]["data"]["name"] == "Example"

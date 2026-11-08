@@ -157,6 +157,22 @@ function finished(tx: IDBTransaction) {
       rej(tx.error ?? new Error("Storage transaction aborted"));
   });
 }
+// Deleting an item purges it on the server, leaving tombstones with no data.
+// Ordinary deletions keep their last data so they can be undone.
+export function isPurged(row: Pick<Row, "deleted" | "data">) {
+  return row.deleted && Object.keys(row.data).length === 0;
+}
+function dropItem(s: State, itemId: string) {
+  const entries = new Set(
+    [...s.records, ...s.queue.map((o) => ({ ...o, id: o.record_id }))]
+      .filter((r) => r.entity === "entry" && r.data.item_id === itemId)
+      .map((r) => r.id),
+  );
+  const doomed = (entity: Entity, id: string) =>
+    entity === "item" ? id === itemId : entity === "entry" && entries.has(id);
+  s.records = s.records.filter((r) => !doomed(r.entity, r.id));
+  s.queue = s.queue.filter((o) => !doomed(o.entity, o.record_id));
+}
 export class Journal {
   constructor(public account: string) {}
   async read(): Promise<State> {
@@ -239,6 +255,8 @@ export class Journal {
           op.server = result.record;
         }
       }
+      for (const row of response.changes)
+        if (row.entity === "item" && isPurged(row)) dropItem(s, row.id);
       for (const row of response.changes) {
         const pending = s.queue.filter(
           (o) => o.entity === row.entity && o.record_id === row.id,
@@ -261,6 +279,9 @@ export class Journal {
       }
       s.cursor = response.cursor;
     });
+  }
+  async purgeItem(itemId: string) {
+    await this.mutate((s) => dropItem(s, itemId));
   }
   async resetCursor() {
     await this.mutate((s) => {

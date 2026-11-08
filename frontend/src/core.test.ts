@@ -519,3 +519,68 @@ it("stops pulling when a conflict blocks a later edit of the same record", async
     globalThis.fetch = original;
   }
 });
+
+describe("permanent item deletion", () => {
+  const entry = (item_id: string, note: string) => ({
+    item_id,
+    quantity: "1",
+    unit: "tablet",
+    note,
+  });
+  const item = { name: "Example", color: "#123abc" };
+
+  it("drops the item, its entries and their pending changes on this device", async () => {
+    const journal = new Journal("purge-local");
+    await journal.put("item", "gone", item);
+    await journal.put("item", "kept", item);
+    await journal.put("entry", "e1", entry("gone", "private"));
+    await journal.put("entry", "e2", entry("kept", "stays"));
+    await journal.purgeItem("gone");
+    const state = await journal.read();
+    expect(state.records.map((r) => r.id).sort()).toEqual(["e2", "kept"]);
+    expect(state.queue.map((o) => o.record_id).sort()).toEqual(["e2", "kept"]);
+  });
+
+  it("applies another device's deletion over local and pending copies", async () => {
+    const journal = new Journal("purge-remote");
+    await journal.put("item", "gone", item);
+    await journal.put("entry", "synced", entry("gone", "synced note"));
+    await journal.put("entry", "kept", entry("other", "stays"));
+    // Only "synced" was acknowledged; "offline" stays queued and blocked.
+    const [, sent] = (await journal.read()).queue;
+    await journal.put("entry", "offline", entry("gone", "offline note"));
+    const offline = (await journal.read()).queue.at(-1)!;
+    const tombstone = (id: string, entity: "item" | "entry") => ({
+      id,
+      entity,
+      version: 2,
+      deleted: true,
+      data: {},
+    });
+    await journal.accept({
+      results: [
+        {
+          id: sent.id,
+          status: "applied",
+          record: {
+            ...tombstone("synced", "entry"),
+            deleted: false,
+            version: 1,
+            data: sent.data,
+          },
+        },
+        { id: offline.id, status: "invalid", message: "Invalid record" },
+      ],
+      changes: [tombstone("synced", "entry"), tombstone("gone", "item")],
+      cursor: 5,
+      has_more: false,
+    });
+    const state = await journal.read();
+    const visible = state.records.filter((r) => !r.deleted).map((r) => r.id);
+    expect(visible).toEqual(["kept"]);
+    expect(JSON.stringify(state)).not.toMatch(
+      /synced note|offline note|Example/,
+    );
+    expect(state.queue.map((o) => o.record_id)).toEqual(["kept"]);
+  });
+});

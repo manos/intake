@@ -761,6 +761,22 @@ form .primary {
   font-size: 0.8rem;
   padding: 10px;
 }
+.manage-actions .danger-text {
+  color: #ffaba5;
+}
+.confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.confirm-actions .danger-button {
+  border: 1px solid #8a4a52;
+  border-radius: 7px;
+  padding: 10px 14px;
+}
+.confirm-actions .danger-button:hover {
+  background: #3a1f28;
+}
 .checkbox {
   flex-direction: row;
   align-items: center;

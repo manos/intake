@@ -11,6 +11,7 @@ import secrets
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import xlwt
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -41,6 +42,38 @@ def record(row: Record):
         "deleted": bool(row.deleted),
         "data": json.loads(row.data),
     }
+
+
+def purged(row: Record | None):
+    """Item deletion leaves terminal tombstones with no content.
+
+    Ordinary sync deletions keep the record's last data so it can be restored,
+    and every item/entry/day model has required fields, so empty data on a
+    deleted record only comes from a purge.
+    """
+    return bool(row and row.deleted and row.data == "{}")
+
+
+class PurgedRecord(ValueError):
+    """The operation targets, or logs against, a permanently deleted item."""
+
+
+def matching(rows, record_ids, key):
+    """Primary keys of JSON rows whose `key` names one of `record_ids`."""
+    found = []
+    for primary, encoded in rows:
+        try:
+            value = json.loads(encoded)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get(key) in record_ids:
+            found.append(primary)
+    return found
+
+
+def chunks(values, size=500):
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
 
 
 def user_values(row: User | None):
@@ -391,6 +424,8 @@ def create_app(config_dir=None):
                 try:
                     if current and current.entity != op.entity:
                         raise ValueError("Record entity cannot change")
+                    if purged(current):
+                        raise PurgedRecord
                     data = (
                         MODELS[op.entity].model_validate(op.data).model_dump()
                         if not op.deleted
@@ -400,6 +435,8 @@ def create_app(config_dir=None):
                         raise ValueError("Cannot delete missing record")
                     if op.entity == "entry" and not op.deleted:
                         parent = db.get(Record, (uid, data["item_id"]))
+                        if purged(parent):
+                            raise PurgedRecord
                         if not parent or parent.entity != "item":
                             raise ValueError("Unknown item")
                     if (current.version if current else 0) != op.base_version:
@@ -424,6 +461,11 @@ def create_app(config_dir=None):
                         current.data = canonical(data)
                         db.add(Change(user_id=uid, record=canonical(saved)))
                         result = {"id": op.id, "status": "applied", "record": saved}
+                except PurgedRecord:
+                    # Rejection is permanent, so a retry needs no receipt, and
+                    # storing this payload would retain the deleted content.
+                    results.append(result)
+                    continue
                 except (ValueError, ValidationError):
                     pass
                 db.add(
@@ -446,6 +488,88 @@ def create_app(config_dir=None):
                 "cursor": page[-1].seq if page else payload.cursor,
                 "has_more": len(rows) > 500,
             }
+
+    @app.delete("/api/items/{item_id}")
+    def delete_item(item_id: str, account=authenticated_user):
+        """Permanently remove an item and every entry logged against it.
+
+        Content is erased from records, the change log and operation receipts.
+        Empty tombstones remain so other devices drop their copies on sync and
+        late writes for these records are rejected. Deleting an ID the server
+        has never seen still stores the tombstone, so a creation still in
+        flight from this device cannot recreate the item.
+        """
+        try:
+            UUID(item_id)
+        except ValueError:
+            raise HTTPException(404, "Item not found") from None
+        uid = account["id"]
+        with connect(app.state.db, write=True) as db:
+            item = db.get(Record, (uid, item_id))
+            if item and item.entity != "item":
+                raise HTTPException(404, "Item not found")
+            if item is None:
+                item = Record(
+                    user_id=uid,
+                    id=item_id,
+                    entity="item",
+                    version=0,
+                    deleted=0,
+                    data="{}",
+                )
+                db.add(item)
+            targets = [] if purged(item) else [item]
+            entries = 0
+            for row in db.scalars(
+                select(Record).where(Record.user_id == uid, Record.entity == "entry")
+            ):
+                if not purged(row) and json.loads(row.data).get("item_id") == item_id:
+                    targets.append(row)
+                    entries += not row.deleted
+            ids = {row.id for row in targets}
+            if not ids:
+                return {"entries": 0}
+            history = matching(
+                db.execute(
+                    select(Change.seq, Change.record).where(Change.user_id == uid)
+                ),
+                ids,
+                "id",
+            )
+            for seqs in chunks(history):
+                db.execute(delete(Change).where(Change.seq.in_(seqs)))
+            receipts = matching(
+                db.execute(
+                    select(Receipt.id, Receipt.payload).where(Receipt.user_id == uid)
+                ),
+                ids,
+                "record_id",
+            )
+            for receipt_ids in chunks(receipts):
+                db.execute(
+                    delete(Receipt).where(
+                        Receipt.user_id == uid, Receipt.id.in_(receipt_ids)
+                    )
+                )
+            for row in targets:
+                row.version += 1
+                row.deleted = 1
+                row.data = "{}"
+                db.add(
+                    Change(
+                        user_id=uid,
+                        record=canonical(
+                            {
+                                "id": row.id,
+                                "entity": row.entity,
+                                "version": row.version,
+                                "deleted": True,
+                                "data": {},
+                            }
+                        ),
+                    )
+                )
+        return {"entries": entries}
 
     @app.post("/api/export")
     def export(payload: dict, account=authenticated_user):
