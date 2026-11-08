@@ -47,7 +47,9 @@
     entryTimezone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone),
     editing: Row | undefined = $state(),
     target: Row | undefined = $state(),
-    undo: Row | undefined = $state();
+    undo: Row | undefined = $state(),
+    purging: Row | undefined = $state(),
+    purgeBusy = $state(false);
   let timezone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone),
     boundary = $state(0),
     dailyNote = $state(""),
@@ -325,6 +327,7 @@
     dialogEpoch++;
     modal = "";
     editing = undefined;
+    purging = undefined;
     error = "";
   }
   function itemForm(item?: Row) {
@@ -487,6 +490,44 @@
       await write(undo.entity, undo.id, undo.data, undoKind === "log");
       undo = undefined;
       status = "Undone";
+    }
+  }
+  function deleteForm(item: Row) {
+    purging = item;
+    modal = "delete-item";
+  }
+  async function purgeItem() {
+    const item = purging,
+      active = journal,
+      credential = auth;
+    if (!item || !active || purgeBusy) return;
+    error = "";
+    if (!credential) {
+      error = "Sign in online to delete this item.";
+      return;
+    }
+    purgeBusy = true;
+    try {
+      // Send pending changes first so the server sees every entry to remove.
+      await synchronize(active, credential);
+      await api(`/items/${item.id}`, credential, undefined, "DELETE");
+      await active.purgeItem(item.id);
+      if (active !== journal) return;
+      if (undo?.id === item.id || undo?.data.item_id === item.id)
+        undo = undefined;
+      await refresh();
+      close();
+      status = `${item.data.name} deleted`;
+      void sync();
+    } catch (e) {
+      if (active !== journal) return;
+      if (e instanceof AuthenticationError) auth = "";
+      error =
+        e instanceof TypeError
+          ? "Connect to the server to delete this item."
+          : (e as Error).message;
+    } finally {
+      purgeBusy = false;
     }
   }
   async function reorder(item: Row, direction: number) {
@@ -989,6 +1030,9 @@
                     ...item.data,
                     archived: !item.data.archived,
                   })}>{item.data.archived ? "Restore" : "Archive"}</button
+              ><button
+                class="text-button danger-text"
+                onclick={() => deleteForm(item)}>Delete</button
               >
             </div>
           </article>{:else}<div class="empty-card">
@@ -1369,6 +1413,19 @@
               onclick={() => remove(editing!)}>Delete entry</button
             >{/if}
         </form>
+      {:else if modal === "delete-item" && purging}{@const logged =
+          entries.filter((r) => r.data.item_id === purging!.id).length}
+        <h2 id="dialog-title">Delete item</h2>
+        <p>
+          Delete {purging.data.name} and its {logged}
+          {logged === 1 ? "entry" : "entries"} from all your devices? This can’t be
+          undone.
+        </p>
+        <div class="confirm-actions">
+          <button class="danger-button" disabled={purgeBusy} onclick={purgeItem}
+            >{purgeBusy ? "Deleting…" : "Delete permanently"}</button
+          ><button class="text-button" onclick={close}>Cancel</button>
+        </div>
       {:else if modal === "day"}<h2 id="dialog-title">Day note</h2>
         <form onsubmit={saveDay}>
           <label
