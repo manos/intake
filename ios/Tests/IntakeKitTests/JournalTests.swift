@@ -4,6 +4,61 @@ import XCTest
 
 final class JournalTests: XCTestCase {
   let binding = Binding(origin: "https://example.com", account: "one", username: "sample")
+  func testBadgeRequiresAResponseFromTheCurrentServerOnTheCurrentNetwork() {
+    var presence = ServerPresence()
+    XCTAssertNil(presence.badge(server: nil, signedIn: false))
+    let old = presence.generation
+    presence.report(server: "one", generation: old, reachable: true)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .connected)
+    XCTAssertEqual(presence.badge(server: "two", signedIn: true), .checking)
+    presence.networkChanged(offline: true)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .offline)
+    presence.networkChanged(offline: false)
+    presence.report(server: "one", generation: old, reachable: true)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .checking)
+    presence.report(server: "one", generation: presence.generation, reachable: false)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .offline)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: false), .signIn)
+  }
+  func testLoggingSyncedNumericAndStringPresetsKeepsExactTimeAndAmount() throws {
+    let journal = try Journal()
+    let settings = Settings(timezone: "America/New_York")
+    var serverItem = try sample()[0]
+    serverItem.version = 1
+    try journal.link(binding, remote: [serverItem], cursor: 1, settings: settings)
+    let item = try XCTUnwrap(journal.read().visible(.item).first)
+    let time = Date(timeIntervalSince1970: 1_793_500_214.125)
+    let presets = try XCTUnwrap(item.data["presets"]?.values)
+    for amount in [nil] + presets.map({ Optional($0.text) }) {
+      try journal.put(item.entry(settings: settings, amount: amount, at: time))
+    }
+    let queued = try journal.batch()
+    XCTAssertEqual(queued.map { $0.data["quantity"]?.text }, ["0.125", "1", "0.125"])
+    for op in queued {
+      XCTAssertEqual(op.data["occurred_at"]?.text, "2026-11-01T02:30:14.125Z")
+      XCTAssertEqual(op.data["timezone"]?.text, "America/New_York")
+      XCTAssertEqual(op.data["item_id"]?.text, item.id)
+    }
+  }
+
+  func testEntryValidationNamesOnlyTheFailingField() throws {
+    let entry = try sample()[1]
+    let cases: [(String, Value, String)] = [
+      ("quantity", .string("0"), "Amount"),
+      ("occurred_at", .string("2026-11-01T01:30:00"), "Timestamp"),
+      ("timezone", .string("Not/AZone"), "Time zone"), ("item_id", .string("invalid"), "Item ID"),
+      ("color", .string("blue"), "Color"), ("unit", .string(""), "Unit"),
+      ("item_name", .string(""), "Item name"), ("note", .number(1), "Note"),
+    ]
+    for (key, value, label) in cases {
+      var bad = entry
+      bad.data[key] = value
+      XCTAssertThrowsError(try Transfer.validate(bad)) {
+        XCTAssertTrue(
+          $0.localizedDescription.hasPrefix(label), "\(key): \($0.localizedDescription)")
+      }
+    }
+  }
   func testPreviewBoundToOneJournalCannotCommitIntoAnother() throws {
     let a = try Journal(profile: "a")
     let b = try Journal(profile: "b")

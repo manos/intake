@@ -64,6 +64,16 @@ public struct Record: Codable, Equatable, Identifiable {
     deleted = false
   }
   public func text(_ key: String) -> String { data[key]?.text ?? "" }
+  public func entry(settings: Settings, amount: String? = nil, at instant: Date = .now) -> Record {
+    Record(
+      .entry,
+      data: [
+        "item_id": .string(id), "item_name": .string(text("name")), "color": .string(text("color")),
+        "quantity": .string(amount ?? text("amount")), "unit": .string(text("unit")),
+        "occurred_at": .string(JournalTime.stamp(instant)), "timezone": .string(settings.timezone),
+        "note": .string(""),
+      ])
+  }
   public var purged: Bool { deleted && data.isEmpty }
   func equivalent(_ other: Self) -> Bool {
     guard entity == other.entity, deleted == other.deleted, data.keys == other.data.keys else {
@@ -136,7 +146,7 @@ public enum JournalTime {
       ?? (try? Date.ISO8601FormatStyle().parse(value))
   }
   public static func stamp(_ d: Date) -> String {
-    d.ISO8601Format(.iso8601(timeZone: .gmt, includingFractionalSeconds: true))
+    Date.ISO8601FormatStyle(includingFractionalSeconds: true, timeZone: .gmt).format(d)
   }
   public static func day(_ d: Date, settings: Settings) -> String {
     var c = Calendar(identifier: .gregorian)

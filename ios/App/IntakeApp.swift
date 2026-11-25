@@ -55,6 +55,7 @@ func totals(_ entries: [Record]) -> String {
 }
 struct TotalsBanner: View {
   @EnvironmentObject var m: JournalModel
+  @Environment(\.scenePhase) private var phase
   var body: some View {
     TimelineView(.periodic(from: .now, by: 60)) { tick in
       let day = JournalTime.day(tick.date, settings: m.state.settings)
@@ -64,8 +65,12 @@ struct TotalsBanner: View {
         } == true
       }
       VStack(alignment: .leading, spacing: 4) {
-        Text(rows.isEmpty ? "Today: no entries" : "Today · \(totals(rows))").font(
-          .subheadline.bold())
+        HStack(alignment: .firstTextBaseline) {
+          Text(rows.isEmpty ? "Today: no entries" : "Today · \(totals(rows))").font(
+            .subheadline.bold())
+          Spacer(minLength: 4)
+          if let badge = m.connectionBadge { ConnectionBadge(status: badge) }
+        }
         if m.state.binding != nil
           && (m.busy || m.state.incomplete || !m.signedIn
             || !["", "Synced"].contains(m.syncStatus))
@@ -76,7 +81,32 @@ struct TotalsBanner: View {
         }
       }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(.vertical, 6)
         .background(.thinMaterial)
+    }.task(id: phase == .active && m.signedIn ? m.state.binding?.key : nil) {
+      guard phase == .active, m.signedIn, m.state.binding != nil else { return }
+      while !Task.isCancelled {
+        do { try await Task.sleep(for: .seconds(60)) } catch { return }
+        m.refreshIdleConnection()
+      }
     }
+  }
+}
+private struct ConnectionBadge: View {
+  let status: ServerPresence.Badge
+  var appearance: (text: String, icon: String, color: Color) {
+    switch status {
+    case .connected: return ("Connected", "cloud.fill", .green)
+    case .offline: return ("Offline", "icloud.slash", .secondary)
+    case .checking: return ("Checking", "ellipsis.icloud", .secondary)
+    case .signIn: return ("Sign in", "person.crop.circle.badge.exclamationmark", .orange)
+    }
+  }
+  var body: some View {
+    Label(appearance.text, systemImage: appearance.icon)
+      .font(.caption.weight(.semibold)).foregroundStyle(.primary, appearance.color)
+      .labelStyle(.titleAndIcon)
+      .padding(.horizontal, 8).padding(.vertical, 3)
+      .background(appearance.color.opacity(0.14), in: Capsule())
+      .accessibilityLabel("Server: \(appearance.text)")
   }
 }
 struct EntryLine: View {
@@ -105,7 +135,7 @@ struct TodayView: View {
           ForEach(m.state.visible(.item).filter { $0.data["archived"] != .bool(true) }) { row in
             HStack {
               Button {
-                m.edit(makeEntry(row, m.state.settings))
+                m.edit(row.entry(settings: m.state.settings))
               } label: {
                 HStack {
                   Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
@@ -125,12 +155,10 @@ struct TodayView: View {
                 "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
               Spacer()
               Menu {
-                Button("Log with details") { edit = makeEntry(row, m.state.settings) }
+                Button("Log with details") { edit = row.entry(settings: m.state.settings) }
                 ForEach(row.data["presets"]?.values.map(\.text) ?? [], id: \.self) { amount in
                   Button("Log \(amount) \(row.text("unit"))") {
-                    var e = makeEntry(row, m.state.settings)
-                    e.data["quantity"] = .string(amount)
-                    m.edit(e)
+                    m.edit(row.entry(settings: m.state.settings, amount: amount))
                   }
                 }
                 Button("Edit item") { details = row }
@@ -185,17 +213,6 @@ struct TodayView: View {
         }
     }
   }
-}
-func makeEntry(_ item: Record, _ settings: Settings) -> Record {
-  Record(
-    .entry,
-    data: [
-      "item_id": .string(item.id), "item_name": .string(item.text("name")),
-      "color": .string(item.text("color")),
-      "quantity": .string(item.text("amount")), "unit": .string(item.text("unit")),
-      "occurred_at": .string(JournalTime.stamp(.now)), "timezone": .string(settings.timezone),
-      "note": .string(""),
-    ])
 }
 struct EntryEditor: View {
   @EnvironmentObject var m: JournalModel

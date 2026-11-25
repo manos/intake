@@ -8,6 +8,10 @@ import SwiftUI
   @Published private(set) var busy = false
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
+  @Published private var presence = ServerPresence()
+  var connectionBadge: ServerPresence.Badge? {
+    presence.badge(server: state.binding?.key, signedIn: signedIn)
+  }
   @Published var message: String?
   @Published var syncStatus = ""
   @Published var candidate: Candidate?
@@ -26,7 +30,12 @@ import SwiftUI
   init() {
     open()
     network.pathUpdateHandler = { [weak self] path in
-      if path.status == .satisfied { Task { @MainActor in self?.trigger() } }
+      let offline = path.status == .unsatisfied
+      Task { @MainActor in
+        guard let self else { return }
+        self.presence.networkChanged(offline: offline)
+        if !offline { self.trigger() }
+      }
     }
     network.start(queue: DispatchQueue(label: "Intake.connectivity"))
   }
@@ -59,6 +68,7 @@ import SwiftUI
   func lifecycle(_ foreground: Bool) {
     active = foreground
     if foreground {
+      presence.invalidate()
       if !ready { open() }
       trigger()
     } else {
@@ -195,6 +205,7 @@ import SwiftUI
     }
     retry?.cancel()
     busy = true
+    let generation = presence.generation
     Task {
       var wait: Int?
       do {
@@ -203,6 +214,7 @@ import SwiftUI
         }
         let server = try Server(b.origin)
         let profile = try await server.me(token, account: b.account)
+        presence.report(server: b.key, generation: generation, reachable: true)
         if state.settingsConflict == nil && state.settings != profile.settings {
           try journal.preferences(profile.settings)
         }
@@ -240,6 +252,11 @@ import SwiftUI
         syncStatus = "Sign in to sync"
       } catch {
         syncStatus = error.localizedDescription
+        if error is URLError {
+          presence.report(server: b.key, generation: generation, reachable: false)
+        } else if case ServerError.response(500...599, _) = error {
+          presence.report(server: b.key, generation: generation, reachable: false)
+        }
         if case ServerError.response(429, let seconds) = error {
           wait = seconds ?? 60
           try? journal.postpone(until: Date().addingTimeInterval(Double(max(1, wait ?? 60))))
@@ -257,6 +274,15 @@ import SwiftUI
         resync = false
         trigger()
       }
+    }
+  }
+  /// Refresh only while the banner is visible and the last sync succeeded.
+  /// Failed connections already use the sync worker's retry schedule.
+  func refreshIdleConnection() {
+    if active, !busy, connectionBadge == .connected,
+      syncStatus == "Synced" || syncStatus == "Sync incomplete"
+    {
+      trigger()
     }
   }
   private func scheduleRetry(_ seconds: Double) {

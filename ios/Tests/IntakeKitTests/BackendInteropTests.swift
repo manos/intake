@@ -100,6 +100,14 @@ final class BackendInteropTests: XCTestCase {
       binding, remote: account.changes, cursor: account.cursor, settings: profile.settings)
     XCTAssertEqual(try fresh.read().visible(.entry).first?.text("quantity"), "0.125")
     XCTAssertTrue(try fresh.batch().isEmpty)
+    let item = try XCTUnwrap(fresh.read().visible(.item).first)
+    for preset in try XCTUnwrap(item.data["presets"]?.values) {
+      try fresh.put(item.entry(settings: profile.settings, amount: preset.text))
+    }
+    let logged = try await sync(fresh.requestBody(fresh.batch()))
+    XCTAssertEqual(logged.results.map(\.status), ["applied", "applied"])
+    XCTAssertEqual(logged.results.map { $0.record?.text("quantity") }, ["1", "0.125"])
+    try fresh.accept(logged)
     // A stale device's offline entry must disappear when the item is purged.
     var child = rows[1]
     child.id = UUID().uuidString.lowercased()

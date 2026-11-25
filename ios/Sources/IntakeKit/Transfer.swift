@@ -105,40 +105,84 @@ public enum Transfer {
     return rows
   }
   static func validate(_ r: Record) throws {
-    func string(_ key: String, _ max: Int, empty: Bool = false) -> Bool {
-      guard case .string(let s) = r.data[key] else { return false }
-      return (empty || !s.isEmpty) && s.count <= max
+    func text(_ key: String, _ label: String, max: Int, allowEmpty: Bool = false) throws {
+      guard case .string(let s) = r.data[key] else {
+        throw Problem.message("\(label) must be text.")
+      }
+      if !allowEmpty && s.isEmpty { throw Problem.message("\(label) is required.") }
+      if s.unicodeScalars.count > max {
+        throw Problem.message("\(label) must be \(max) characters or fewer.")
+      }
     }
-    let color = r.text("color").range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
+    func color() throws {
+      guard r.text("color").range(of: #"^#[0-9a-fA-F]{6}\z"#, options: .regularExpression) != nil
+      else { throw Problem.message("Color must contain six hex digits after #, such as #7552AA.") }
+    }
+    func amount(_ value: Value?, label: String) throws {
+      guard let value, JournalTime.decimal(value.text) != nil else {
+        throw Problem.message(
+          "\(label) must be a positive number no greater than 1 trillion, written in 64 characters or fewer."
+        )
+      }
+    }
     guard UUID(uuidString: r.id) != nil else { throw Problem.message("Invalid record ID.") }
     let keys: Set<String>
     switch r.entity {
     case .item:
       keys = ["name", "unit", "amount", "presets", "color", "archived", "order"]
-      guard string("name", 200), string("unit", 64), color,
-        case .bool = r.data["archived"], case .number(let order) = r.data["order"],
+      try text("name", "Item name", max: 200)
+      try text("unit", "Unit", max: 64)
+      try color()
+      try amount(r.data["amount"], label: "Default amount")
+      guard case .array(let presets) = r.data["presets"], presets.count <= 30 else {
+        throw Problem.message("Presets must be a list of at most 30 amounts.")
+      }
+      for (index, preset) in presets.enumerated() {
+        try amount(preset, label: "Preset \(index + 1)")
+      }
+      guard case .bool = r.data["archived"] else {
+        throw Problem.message("Archived must be true or false.")
+      }
+      guard case .number(let order) = r.data["order"],
         let exact = Int(NSDecimalNumber(decimal: order).stringValue),
-        (-1_000_000...1_000_000).contains(exact),
-        JournalTime.decimal(r.text("amount")) != nil, case .array(let p) = r.data["presets"],
-        p.count <= 30, p.allSatisfy({ JournalTime.decimal($0.text) != nil })
-      else { throw Problem.message("Check the item name, unit, quantity, color and presets.") }
+        (-1_000_000...1_000_000).contains(exact)
+      else {
+        throw Problem.message("Item order must be a whole number from −1,000,000 to 1,000,000.")
+      }
     case .entry:
       keys = [
         "item_id", "item_name", "unit", "quantity", "color", "occurred_at", "timezone", "note",
       ]
-      guard string("item_name", 200), string("unit", 64), color, string("note", 10000, empty: true),
-        UUID(uuidString: r.text("item_id")) != nil, JournalTime.decimal(r.text("quantity")) != nil,
-        TimeZone(identifier: r.text("timezone")) != nil,
-        JournalTime.instant(r.text("occurred_at")) != nil
-      else { throw Problem.message("Check the entry amount, offset timestamp, timezone and item.") }
+      try amount(r.data["quantity"], label: "Amount")
+      try text("item_name", "Item name", max: 200)
+      try text("unit", "Unit", max: 64)
+      try color()
+      try text("note", "Note", max: 10_000, allowEmpty: true)
+      guard UUID(uuidString: r.text("item_id")) != nil else {
+        throw Problem.message("Item ID must be a valid UUID.")
+      }
+      guard TimeZone(identifier: r.text("timezone")) != nil else {
+        throw Problem.message(
+          "Time zone must be a recognized identifier, such as America/New_York.")
+      }
+      guard JournalTime.instant(r.text("occurred_at")) != nil else {
+        throw Problem.message(
+          "Timestamp must include a date, a time, and a UTC offset (Z or ±HH:MM).")
+      }
     case .day:
       keys = ["date", "note", "zero"]
       let day = r.text("date")
-      guard string("note", 10000, empty: true), case .bool = r.data["zero"], day.count == 10,
+      try text("note", "Day note", max: 10_000, allowEmpty: true)
+      guard case .bool = r.data["zero"] else {
+        throw Problem.message("Zero day must be true or false.")
+      }
+      guard day.count == 10,
         let instant = JournalTime.instant(day + "T12:00:00Z"),
         JournalTime.day(instant, settings: Settings(timezone: "UTC")) == day
-      else { throw Problem.message("Invalid journal day.") }
+      else { throw Problem.message("Day date must be a calendar date in YYYY-MM-DD format.") }
     }
-    guard Set(r.data.keys) == keys else { throw Problem.message("Unexpected or missing fields.") }
+    if let extra = Set(r.data.keys).subtracting(keys).sorted().first {
+      throw Problem.message("Unexpected \(r.entity.rawValue) field: \(extra).")
+    }
   }
 }
