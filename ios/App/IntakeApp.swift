@@ -109,6 +109,8 @@ struct EntryLine: View {
 }
 struct TodayView: View {
   @EnvironmentObject var m: JournalModel
+  @Environment(\.scenePhase) private var phase
+  @State private var journalDay: String?
   @State private var edit: Record?
   @State private var adding = false
   @State private var dayEditor = false
@@ -116,91 +118,89 @@ struct TodayView: View {
   @State private var successID: UUID?
   var body: some View {
     NavigationStack {
-      TimelineView(.periodic(from: .now, by: 60)) { tick in
-        List {
-          if let status = m.connectionBadge {
-            SyncStatusRow(status: status, showSuccess: successID != nil)
-          }
-          Section("Items") {
-            ForEach(m.state.visible(.item).filter { $0.data["archived"] != .bool(true) }) { row in
-              HStack {
-                Button {
-                  m.edit(row.entry(settings: m.state.settings))
-                } label: {
-                  HStack {
-                    Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
-                    VStack(alignment: .leading) {
-                      Text(row.text("name"))
-                      Text("\(row.text("amount")) \(row.text("unit"))").font(.caption)
-                      if let last = m.state.visible(.entry).first(where: {
-                        $0.text("item_id") == row.id
-                      }),
-                        let d = JournalTime.instant(last.text("occurred_at"))
-                      {
-                        Text(d, style: .relative).font(.caption2)
-                      }
-                    }
-                  }
-                }.buttonStyle(.borderless).layoutPriority(1).accessibilityLabel(
-                  "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
-                let presets = row.data["presets"]?.values.map(\.text) ?? []
-                InlinePresets(amounts: presets, item: row) { amount in
-                  m.edit(row.entry(settings: m.state.settings, amount: amount))
-                }.frame(maxWidth: .infinity, alignment: .trailing)
-                Menu {
-                  Button("Log with details") { edit = row.entry(settings: m.state.settings) }
-                  ForEach(presets.indices, id: \.self) { index in
-                    let amount = presets[index]
-                    Button("Log \(amount) \(row.text("unit"))") {
-                      m.edit(row.entry(settings: m.state.settings, amount: amount))
-                    }
-                  }
-                  Button("Edit item") { details = row }
-                } label: {
-                  Image(systemName: "ellipsis.circle")
-                }.fixedSize().layoutPriority(1).accessibilityLabel(
-                  "Options for \(row.text("name"))")
-              }
-            }
-            Button("Add item", systemImage: "plus") { adding = true }
-          }
-          Section("Today’s journal") {
-            let day = JournalTime.day(tick.date, settings: m.state.settings)
-            let entries = m.state.visible(.entry).filter { row in
-              JournalTime.instant(row.text("occurred_at")).map {
-                JournalTime.day($0, settings: m.state.settings) == day
-              } == true
-            }
-            let dayRow = m.state.visible(.day).first { $0.text("date") == day }
-            if let dayRow {
-              Text(dayRow.text("note"))
-              if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
-                Text("Confirmed zero").font(.caption)
-              }
-            }
-            Button("Edit day note or zero day") { dayEditor = true }
-            ForEach(entries) { r in
+      List {
+        if let status = m.connectionBadge {
+          SyncStatusRow(status: status, showSuccess: successID != nil)
+        }
+        Section("Items") {
+          ForEach(m.display.activeItems) { row in
+            HStack {
               Button {
-                edit = r
+                m.edit(row.entry(settings: m.state.settings))
               } label: {
-                EntryLine(row: r)
-              }
-            }
-            if !entries.isEmpty {
-              VStack(alignment: .leading, spacing: 3) {
-                Text("Daily totals").font(.caption.weight(.semibold))
-                Text(totals(entries)).font(.subheadline)
-              }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
+                HStack {
+                  Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
+                  VStack(alignment: .leading) {
+                    Text(row.text("name"))
+                    Text("\(row.text("amount")) \(row.text("unit"))").font(.caption)
+                    if let d = m.display.latestByItem[row.id] {
+                      Text(d, style: .relative).font(.caption2)
+                    }
+                  }
+                }
+              }.buttonStyle(.borderless).layoutPriority(1).accessibilityLabel(
+                "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
+              let presets = row.data["presets"]?.values.map(\.text) ?? []
+              InlinePresets(amounts: presets, item: row) { amount in
+                m.edit(row.entry(settings: m.state.settings, amount: amount))
+              }.frame(maxWidth: .infinity, alignment: .trailing)
+              Menu {
+                Button("Log with details") { edit = row.entry(settings: m.state.settings) }
+                ForEach(presets.indices, id: \.self) { index in
+                  let amount = presets[index]
+                  Button("Log \(amount) \(row.text("unit"))") {
+                    m.edit(row.entry(settings: m.state.settings, amount: amount))
+                  }
+                }
+                Button("Edit item") { details = row }
+              } label: {
+                Image(systemName: "ellipsis.circle")
+              }.fixedSize().layoutPriority(1).accessibilityLabel(
+                "Options for \(row.text("name"))")
             }
           }
-          if let undo = m.undo {
-            Button("Undo deleted entry") {
-              m.edit(undo)
-              m.undo = nil
+          Button("Add item", systemImage: "plus") { adding = true }
+        }
+        Section("Today’s journal") {
+          let day = journalDay ?? JournalTime.day(.now, settings: m.state.settings)
+          let entries = m.display.entriesByDay[day] ?? []
+          let dayRow = m.display.notesByDay[day]?.first
+          if let dayRow {
+            Text(dayRow.text("note"))
+            if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
+              Text("Confirmed zero").font(.caption)
             }
+          }
+          Button("Edit day note or zero day") { dayEditor = true }
+          ForEach(entries) { r in
+            Button {
+              edit = r
+            } label: {
+              EntryLine(row: r)
+            }
+          }
+          if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Daily totals").font(.caption.weight(.semibold))
+              Text(totals(entries)).font(.subheadline)
+            }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
+          }
+        }
+        if let undo = m.undo {
+          Button("Undo deleted entry") {
+            m.edit(undo)
+            m.undo = nil
           }
         }
       }
+      .task(id: phase) {
+        guard phase == .active else { return }
+        while !Task.isCancelled {
+          updateDay()
+          do { try await Task.sleep(for: .seconds(60)) } catch { return }
+        }
+      }
+      .onChange(of: m.state.settings) { _, _ in updateDay() }
       .modifier(
         LinkedRefresh(
           enabled: m.state.binding != nil && m.signedIn && m.state.deletionChoice == nil
@@ -225,6 +225,10 @@ struct TodayView: View {
       }
     }
   }
+  private func updateDay() {
+    let next = JournalTime.day(.now, settings: m.state.settings)
+    if journalDay != next { journalDay = next }
+  }
 }
 private struct LinkedRefresh: ViewModifier {
   let enabled: Bool
@@ -238,13 +242,28 @@ private struct InlinePresets: View {
   let amounts: [String]
   let item: Record
   let log: (String) -> Void
+  private let spacing: CGFloat = 6
+  private let minimumWidth: CGFloat = 44
 
   var body: some View {
-    // Try complete prefixes at their intrinsic width. Long units and larger
-    // Dynamic Type sizes naturally leave more presets in the options menu.
+    if !amounts.isEmpty {
+      Text("0").font(.subheadline.weight(.semibold)).padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 44).hidden().accessibilityHidden(true)
+        .overlay {
+          GeometryReader { bounds in
+            // Each button is at least 44pt wide. Never construct prefixes
+            // that cannot possibly fit the space remaining in this row.
+            let count = min(
+              amounts.count, max(0, Int((bounds.size.width + spacing) / (minimumWidth + spacing))))
+            fitted(count).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+          }
+        }
+    }
+  }
+  private func fitted(_ count: Int) -> some View {
     ViewThatFits(in: .horizontal) {
-      ForEach(amounts.indices.reversed(), id: \.self) { last in
-        HStack(spacing: 6) {
+      ForEach((0..<count).reversed(), id: \.self) { last in
+        HStack(spacing: spacing) {
           ForEach(0...last, id: \.self) { index in
             let amount = amounts[index]
             let unit = item.text("unit")
@@ -254,7 +273,7 @@ private struct InlinePresets: View {
               Text("\(amount) \(unit)").font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 9).padding(.vertical, 5)
                 .background(.tint.opacity(0.12), in: Capsule())
-                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                .frame(minWidth: minimumWidth, minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Log \(amount) \(unit) of \(item.text("name"))")
@@ -421,7 +440,7 @@ struct DayEditor: View {
   @State private var note = ""
   @State private var zero = false
   @State private var original: Record?
-  var existing: Record? { m.state.visible(.day).first { $0.text("date") == day } }
+  var existing: Record? { m.display.notesByDay[day]?.first }
   var body: some View {
     NavigationStack {
       Form {

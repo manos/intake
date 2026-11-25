@@ -4,6 +4,30 @@ import XCTest
 
 final class JournalTests: XCTestCase {
   let binding = Binding(origin: "https://example.com", account: "one", username: "sample")
+  func testJournalDisplayOrdersRepeatedHourAndRegroupsAfterEdits() throws {
+    var s = JournalState()
+    s.settings = Settings(timezone: "America/New_York", day_start: 2)
+    let fixture = try sample()
+    let item = fixture[0]
+    var early = fixture[1]
+    var late = fixture[1]
+    var tied = fixture[1]
+    early.id = "a"
+    late.id = "b"
+    tied.id = "c"
+    early.data["occurred_at"] = .string("2026-11-01T01:30:00-04:00")
+    late.data["occurred_at"] = .string("2026-11-01T01:30:00-05:00")
+    tied.data["occurred_at"] = late.data["occurred_at"]
+    for row in [item, tied, early, late] { s.records[row.id] = row }
+    let old = JournalDisplay(s)
+    XCTAssertEqual(old.entriesByDay["2026-10-31"]?.map(\.id), ["b", "c", "a"])
+    XCTAssertEqual(old.latestByItem[item.id], JournalTime.instant(late.text("occurred_at")))
+    s.records[late.id]?.deleted = true
+    s.settings.day_start = 0
+    let new = JournalDisplay(s)
+    XCTAssertNil(new.entriesByDay["2026-10-31"])
+    XCTAssertEqual(new.entriesByDay["2026-11-01"]?.map(\.id), ["c", "a"])
+  }
   func testFailedSyncStaysVisibleUntilTheWholeSyncSucceeds() {
     var presence = ServerPresence()
     presence.report(server: "one", generation: presence.generation, reachable: true)

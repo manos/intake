@@ -5,6 +5,7 @@ import SwiftUI
 
 @MainActor final class JournalModel: ObservableObject {
   @Published private(set) var state = JournalState()
+  private(set) var display = JournalDisplay(JournalState())
   @Published private(set) var busy = false
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
@@ -60,7 +61,11 @@ import SwiftUI
   }
   private func refresh() throws {
     guard let journal else { throw Problem.message("Journal is unavailable.") }
-    state = try journal.read()
+    let updated = try journal.read()
+    if state.settings != updated.settings || state.records != updated.records {
+      display = JournalDisplay(updated)
+    }
+    state = updated
     if let b = state.binding {
       signedIn = try DeviceSession.load(b.key) != nil
     } else {
@@ -222,6 +227,7 @@ import SwiftUI
     let task = Task {
       var wait: Int?
       var completed = false
+      var reload = false
       do {
         guard let token = try DeviceSession.load(b.key) else {
           throw ServerError.response(401, nil)
@@ -231,23 +237,42 @@ import SwiftUI
         presence.report(server: b.key, generation: generation, reachable: true)
         if state.settingsConflict == nil && state.settings != profile.settings {
           try journal.preferences(profile.settings)
+          reload = true
         }
         syncStatus = "Syncing…"
+        var firstPage = true
         while active {
-          let old = try journal.read()
+          // A caught-up phone only needs an empty pull. Avoid decoding and
+          // rewriting its entire SQLite snapshot for a heartbeat with no changes.
+          let emptyPull = firstPage && state.caughtUp
+          firstPage = false
+          let old = emptyPull ? state : try journal.read()
           if let id = old.purges.first {
             try await server.deleteItem(id, token: token, account: b.account)
             try journal.acknowledgePurge(id)
+            reload = true
             continue
           }
-          let ops = try journal.batch()
+          let ops = emptyPull ? [] : try journal.batch()
           do {
-            let page = try await server.pull(
-              journal.requestBody(ops), token: token, account: b.account)
+            let body =
+              emptyPull
+              ? Data("{\"operations\":[],\"cursor\":\(old.cursor)}".utf8)
+              : try journal.requestBody(ops)
+            let page = try await server.pull(body, token: token, account: b.account)
             guard Set(page.results.map(\.id)) == Set(ops.map(\.id)),
               !page.has_more || page.cursor > old.cursor
             else { throw ServerError.invalid }
+            if emptyPull, page.changes.isEmpty, !page.has_more, page.cursor == old.cursor {
+              if state.caughtUp {
+                completed = true
+                break
+              }
+              // A local edit arrived during the network request. Drain it normally.
+              continue
+            }
             try journal.accept(page)
+            reload = true
             if try !page.has_more && journal.batch().isEmpty && journal.read().purges.isEmpty {
               completed = true
               break
@@ -256,9 +281,13 @@ import SwiftUI
             let (rows, cursor) = try await server.snapshot(token: token, account: b.account)
             try journal.link(
               b, remote: rows, cursor: cursor, settings: profile.settings, recovering: true)
+            reload = true
           }
         }
-        try refresh()
+        if reload {
+          try refresh()
+          reload = false
+        }
         completed = completed && !state.incomplete
         syncStatus = completed ? "Synced" : "Sync incomplete"
         delay = 2
@@ -278,6 +307,7 @@ import SwiftUI
         if case ServerError.response(429, let seconds) = error {
           wait = seconds ?? 60
           try? journal.postpone(until: Date().addingTimeInterval(Double(max(1, wait ?? 60))))
+          reload = true
         } else {
           wait = delay
           delay = min(120, delay * 2)
@@ -286,7 +316,7 @@ import SwiftUI
       if active { presence.finishedSync(server: b.key, succeeded: completed) }
       syncTask = nil
       busy = false
-      try? refresh()
+      if reload { try? refresh() }
       if let wait, active {
         resync = false
         scheduleRetry(Double(wait))

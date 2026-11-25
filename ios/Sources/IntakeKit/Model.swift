@@ -195,20 +195,52 @@ public struct JournalState: Codable {
   public var hasLocalData: Bool {
     customized || !records.isEmpty || !pending.isEmpty || !purges.isEmpty
   }
+  public var caughtUp: Bool {
+    !incomplete && pending.isEmpty && purges.isEmpty && conflicts.isEmpty
+  }
   public var competingDays: [String: [Record]] {
     Dictionary(grouping: visible(.day)) { $0.text("date") }.filter { $0.value.count > 1 }
   }
   public func visible(_ entity: Entity) -> [Record] {
-    records.values.filter { $0.entity == entity && !$0.deleted }.sorted {
+    if entity == .entry { return datedEntries().map(\.record) }
+    return records.values.filter { $0.entity == entity && !$0.deleted }.sorted {
       if entity == .item, $0.text("order") != $1.text("order") {
         return (Int($0.text("order")) ?? 0) < (Int($1.text("order")) ?? 0)
       }
-      if entity == .entry {
-        let a = JournalTime.instant($0.text("occurred_at"))
-        let b = JournalTime.instant($1.text("occurred_at"))
-        if a != b { return (a ?? .distantPast) > (b ?? .distantPast) }
-      }
       return $0.id < $1.id
+    }
+  }
+  fileprivate func datedEntries() -> [(record: Record, instant: Date?)] {
+    records.values.lazy.filter { $0.entity == .entry && !$0.deleted }
+      .map { (record: $0, instant: JournalTime.instant($0.text("occurred_at"))) }
+      .sorted {
+        let a = $0.instant ?? .distantPast
+        let b = $1.instant ?? .distantPast
+        return a == b ? $0.record.id < $1.record.id : a > b
+      }
+  }
+}
+
+/// Read-side indexes for a single immutable snapshot. Scrolling, status
+/// changes, and minute ticks don't re-sort records or reparse timestamps.
+public struct JournalDisplay {
+  public let items: [Record]
+  public let activeItems: [Record]
+  public let notesByDay: [String: [Record]]
+  public let competingDays: [String: [Record]]
+  public private(set) var entriesByDay: [String: [Record]] = [:]
+  public private(set) var latestByItem: [String: Date] = [:]
+
+  public init(_ state: JournalState) {
+    items = state.visible(.item)
+    activeItems = items.filter { $0.data["archived"] != .bool(true) }
+    notesByDay = Dictionary(grouping: state.visible(.day)) { $0.text("date") }
+    competingDays = notesByDay.filter { $0.value.count > 1 }
+    for (record, instant) in state.datedEntries() {
+      guard let instant else { continue }
+      let item = record.text("item_id")
+      if latestByItem[item] == nil { latestByItem[item] = instant }
+      entriesByDay[JournalTime.day(instant, settings: state.settings), default: []].append(record)
     }
   }
 }

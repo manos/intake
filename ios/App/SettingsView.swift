@@ -19,8 +19,7 @@ enum AppAccent: String, CaseIterable {
   case teal = "Teal"
   case green = "Green"
   case orange = "Orange"
-  case
-    pink = "Pink"
+  case pink = "Pink"
   case graphite = "Graphite"
 
   var color: Color {
@@ -60,13 +59,24 @@ struct SettingsView: View {
     NavigationStack {
       Form {
         Section("Appearance") {
-          Picker("Accent color", selection: $accent) {
-            ForEach(AppAccent.allCases, id: \.self) { choice in
-              Label {
-                Text(choice.rawValue)
-              } icon: {
-                Image(systemName: "circle.fill").foregroundStyle(choice.color)
-              }.tag(choice)
+          NavigationLink {
+            List(AppAccent.allCases, id: \.self) { choice in
+              Button {
+                accent = choice
+              } label: {
+                HStack {
+                  Circle().fill(choice.color).frame(width: 16, height: 16)
+                  Text(choice.rawValue)
+                  Spacer()
+                  if choice == accent { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                }.contentShape(Rectangle())
+              }.buttonStyle(.plain)
+                .accessibilityAddTraits(choice == accent ? .isSelected : [])
+            }.navigationTitle("Accent color")
+          } label: {
+            LabeledContent("Accent color") {
+              Circle().fill(accent.color).frame(width: 14, height: 14)
+              Text(accent.rawValue)
             }
           }
         }
@@ -129,9 +139,9 @@ struct SettingsView: View {
             Label("Setup and sync guide", systemImage: "book")
           }
         }
-        ForEach(m.state.competingDays.keys.sorted(), id: \.self) { day in
+        ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
           Section("Choose the day note for \(day)") {
-            ForEach(m.state.competingDays[day] ?? []) { r in
+            ForEach(m.display.competingDays[day] ?? []) { r in
               Button("Keep: \(r.text("note"))\(r.data["zero"] == .bool(true) ? " (zero day)" : "")")
               {
                 m.change { try $0.resolveDay(day, using: r) }
@@ -144,7 +154,7 @@ struct SettingsView: View {
             ForEach(
               m.state.conflicts.keys.filter { id in
                 guard let r = m.state.records[id], r.entity == .day else { return true }
-                return m.state.competingDays[r.text("date")] == nil
+                return m.display.competingDays[r.text("date")] == nil
               }.sorted(), id: \.self
             ) { id in
               let conflict = m.state.conflicts[id]
@@ -164,7 +174,7 @@ struct SettingsView: View {
               Array(Set(TimeZone.knownTimeZoneIdentifiers + [m.state.settings.timezone])).sorted(),
               id: \.self
             ) { Text($0) }
-          }
+          }.pickerStyle(.navigationLink)
           Stepper("Day starts at \(boundary):00", value: $boundary, in: 0...23)
           Button("Save settings") {
             m.updateSettings(Settings(timezone: timezone, day_start: boundary))
@@ -175,7 +185,7 @@ struct SettingsView: View {
           }
         }
         Section("Items") {
-          ForEach(m.state.visible(.item)) { r in
+          ForEach(m.display.items) { r in
             Button(r.text("name") + (r.data["archived"] == .bool(true) ? " (archived)" : "")) {
               item = r
             }

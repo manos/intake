@@ -56,19 +56,10 @@ struct HistoryView: View {
     let day: String, series: String, value: Double, itemID: String
     var id: String { day + itemID + series }
   }
-  func byDay() -> [String: [Record]] {
-    var groups: [String: [Record]] = [:]
-    for e in m.state.visible(.entry) {
-      if let instant = JournalTime.instant(e.text("occurred_at")) {
-        groups[JournalTime.day(instant, settings: m.state.settings), default: []].append(e)
-      }
-    }
-    return groups
-  }
   func filtered(_ r: [Record]) -> [Record] {
     r.filter { filter.isEmpty || $0.text("item_id") == filter }
   }
-  func points(_ buckets: [String: [Record]]) -> [Point] {
+  func points(_ buckets: [String: [Record]], days: [String]) -> [Point] {
     days.flatMap { day in
       Dictionary(grouping: filtered(buckets[day] ?? [])) { e in
         e.text("item_id") + "|" + e.text("unit")
@@ -86,14 +77,15 @@ struct HistoryView: View {
   var body: some View {
     NavigationStack {
       List {
-        let buckets = byDay()
+        let buckets = m.display.entriesByDay
+        let days = self.days
         Section {
           Picker("View", selection: $mode) {
             ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
           }.pickerStyle(.segmented)
           Picker("Item", selection: $filter) {
             Text("All items").tag("")
-            ForEach(m.state.visible(.item)) { Text($0.text("name")).tag($0.id) }
+            ForEach(m.display.items) { Text($0.text("name")).tag($0.id) }
           }
           Toggle("Custom dates", isOn: $custom)
           if custom {
@@ -121,7 +113,7 @@ struct HistoryView: View {
         if mode == .week {
           Section("Weekly totals") {
             Toggle("Show quantities", isOn: $amountChart)
-            Chart(points(buckets)) { p in
+            Chart(points(buckets, days: days)) { p in
               BarMark(
                 x: .value("Day", p.day), y: .value(amountChart ? "Quantity" : "Count", p.value)
               )
@@ -146,9 +138,8 @@ struct HistoryView: View {
               }
               ForEach(days, id: \.self) { day in
                 let all = buckets[day] ?? []
-                let zero = m.state.visible(.day).contains {
-                  $0.text("date") == day && $0.data["zero"] == .bool(true)
-                }
+                let zero =
+                  m.display.notesByDay[day]?.contains { $0.data["zero"] == .bool(true) } ?? false
                 let count = filtered(all).count
                 Button {
                   selectedDay = ChosenDay(id: day)
@@ -190,7 +181,7 @@ struct HistoryView: View {
         }
         ForEach(days.reversed(), id: \.self) { day in
           let rows = filtered(buckets[day] ?? [])
-          let dayNote = m.state.visible(.day).first { $0.text("date") == day }
+          let dayNote = m.display.notesByDay[day]?.first
           if !rows.isEmpty || dayNote != nil {
             Section {
               if let dayNote {
@@ -220,7 +211,7 @@ struct HistoryView: View {
         .sheet(item: $selectedDay) { d in
           NavigationStack {
             List {
-              ForEach(filtered(byDay()[d.id] ?? [])) { row in
+              ForEach(filtered(m.display.entriesByDay[d.id] ?? [])) { row in
                 NavigationLink {
                   EntryEditor(row: row)
                 } label: {
