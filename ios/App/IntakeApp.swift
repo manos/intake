@@ -95,6 +95,7 @@ private struct ConnectionBadge: View {
   var appearance: (text: String, icon: String, color: Color) {
     switch status {
     case .connected: return ("Connected", "cloud.fill", .green)
+    case .syncFailed: return ("Sync failed", "exclamationmark.icloud.fill", .orange)
     case .offline: return ("Offline", "icloud.slash", .secondary)
     case .checking: return ("Checking", "ellipsis.icloud", .secondary)
     case .signIn: return ("Sign in", "person.crop.circle.badge.exclamationmark", .orange)
@@ -128,6 +129,7 @@ struct TodayView: View {
   @State private var adding = false
   @State private var dayEditor = false
   @State private var details: Record?
+  @State private var successID: UUID?
   var body: some View {
     NavigationStack {
       List {
@@ -151,12 +153,16 @@ struct TodayView: View {
                     }
                   }
                 }
-              }.buttonStyle(.borderless).accessibilityLabel(
+              }.buttonStyle(.borderless).layoutPriority(1).accessibilityLabel(
                 "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
-              Spacer()
+              let presets = row.data["presets"]?.values.map(\.text) ?? []
+              InlinePresets(amounts: presets, item: row) { amount in
+                m.edit(row.entry(settings: m.state.settings, amount: amount))
+              }.frame(maxWidth: .infinity, alignment: .trailing)
               Menu {
                 Button("Log with details") { edit = row.entry(settings: m.state.settings) }
-                ForEach(row.data["presets"]?.values.map(\.text) ?? [], id: \.self) { amount in
+                ForEach(presets.indices, id: \.self) { index in
+                  let amount = presets[index]
                   Button("Log \(amount) \(row.text("unit"))") {
                     m.edit(row.entry(settings: m.state.settings, amount: amount))
                   }
@@ -164,7 +170,7 @@ struct TodayView: View {
                 Button("Edit item") { details = row }
               } label: {
                 Image(systemName: "ellipsis.circle")
-              }.accessibilityLabel("Options for \(row.text("name"))")
+              }.fixedSize().layoutPriority(1).accessibilityLabel("Options for \(row.text("name"))")
             }
           }
           Button("Add item", systemImage: "plus") { adding = true }
@@ -205,12 +211,77 @@ struct TodayView: View {
             m.undo = nil
           }
         }
-      }.navigationTitle("Today").sheet(item: $edit) { EntryEditor(row: $0) }
-        .sheet(isPresented: $adding) { ItemEditor(row: nil) }
-        .sheet(item: $details) { ItemEditor(row: $0) }
-        .sheet(isPresented: $dayEditor) {
-          DayEditor(day: JournalTime.day(.now, settings: m.state.settings))
+      }
+      .modifier(
+        LinkedRefresh(
+          enabled: m.state.binding != nil && m.signedIn && m.state.deletionChoice == nil
+        ) {
+          successID = nil
+          if await m.pullToSync() {
+            successID = UUID()
+            AccessibilityNotification.Announcement("Sync successful").post()
+          }
         }
+      )
+      .overlay(alignment: .top) {
+        if successID != nil, m.connectionBadge == .connected {
+          Label("Success!", systemImage: "checkmark.circle.fill")
+            .font(.subheadline.bold()).foregroundStyle(.primary, .green)
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule()).padding(.top, 8)
+            .allowsHitTesting(false)
+        }
+      }
+      .task(id: successID) {
+        guard successID != nil else { return }
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        successID = nil
+      }
+      .navigationTitle("Today").sheet(item: $edit) { EntryEditor(row: $0) }
+      .sheet(isPresented: $adding) { ItemEditor(row: nil) }
+      .sheet(item: $details) { ItemEditor(row: $0) }
+      .sheet(isPresented: $dayEditor) {
+        DayEditor(day: JournalTime.day(.now, settings: m.state.settings))
+      }
+    }
+  }
+}
+private struct LinkedRefresh: ViewModifier {
+  let enabled: Bool
+  let action: @MainActor @Sendable () async -> Void
+  @ViewBuilder func body(content: Content) -> some View {
+    if enabled { content.refreshable { await action() } } else { content }
+  }
+}
+
+private struct InlinePresets: View {
+  let amounts: [String]
+  let item: Record
+  let log: (String) -> Void
+
+  var body: some View {
+    // Try complete prefixes at their intrinsic width. Long units and larger
+    // Dynamic Type sizes naturally leave more presets in the options menu.
+    ViewThatFits(in: .horizontal) {
+      ForEach(amounts.indices.reversed(), id: \.self) { last in
+        HStack(spacing: 6) {
+          ForEach(0...last, id: \.self) { index in
+            let amount = amounts[index]
+            let unit = item.text("unit")
+            Button {
+              log(amount)
+            } label: {
+              Text("\(amount) \(unit)").font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(.tint.opacity(0.12), in: Capsule())
+                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Log \(amount) \(unit) of \(item.text("name"))")
+          }
+        }.fixedSize()
+      }
+      Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
     }
   }
 }

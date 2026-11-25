@@ -25,6 +25,8 @@ import SwiftUI
   private var journal: Journal?
   private let network = NWPathMonitor()
   private var retry: Task<Void, Never>?, delay = 2
+  private var syncTask: Task<Bool, Never>?
+  private var foregroundTask: Task<Void, Never>?
   private var active = true, resync = false
 
   init() {
@@ -78,8 +80,9 @@ import SwiftUI
   private func foregroundWork(_ work: @escaping () async throws -> Void) {
     guard !busy else { return }
     busy = true
-    Task {
+    foregroundTask = Task {
       defer {
+        foregroundTask = nil
         busy = false
         if resync {
           resync = false
@@ -191,23 +194,34 @@ import SwiftUI
       try await self.link(c)
     }
   }
-  func trigger() {
+  /// The refresh gesture joins the same task as automatic sync so its spinner
+  /// covers the final change page and any queued writes.
+  func pullToSync() async -> Bool {
+    let requestedScope = scope
+    if let foregroundTask { await foregroundTask.value }
+    guard requestedScope == scope, !Task.isCancelled else { return false }
+    guard let task = syncTask ?? trigger() else { return false }
+    let completed = await task.value
+    return completed && requestedScope == scope && !Task.isCancelled
+  }
+  @discardableResult func trigger() -> Task<Bool, Never>? {
     guard active, signedIn, candidate == nil, state.deletionChoice == nil, let journal,
       let b = state.binding
-    else { return }
+    else { return nil }
     if !state.maySync(at: .now), let until = state.retryAfter {
       scheduleRetry(until.timeIntervalSinceNow)
-      return
+      return nil
     }
     if busy {
       resync = true
-      return
+      return syncTask
     }
     retry?.cancel()
     busy = true
     let generation = presence.generation
-    Task {
+    let task = Task {
       var wait: Int?
+      var completed = false
       do {
         guard let token = try DeviceSession.load(b.key) else {
           throw ServerError.response(401, nil)
@@ -235,6 +249,7 @@ import SwiftUI
             else { throw ServerError.invalid }
             try journal.accept(page)
             if try !page.has_more && journal.batch().isEmpty && journal.read().purges.isEmpty {
+              completed = true
               break
             }
           } catch ServerError.cursorReset {
@@ -244,13 +259,16 @@ import SwiftUI
           }
         }
         try refresh()
-        syncStatus = state.incomplete ? "Sync incomplete" : "Synced"
+        completed = completed && !state.incomplete
+        syncStatus = completed ? "Synced" : "Sync incomplete"
         delay = 2
       } catch ServerError.response(401, _) {
+        completed = false
         try? DeviceSession.set(b.key, nil)
         signedIn = false
         syncStatus = "Sign in to sync"
       } catch {
+        completed = false
         syncStatus = error.localizedDescription
         if error is URLError {
           presence.report(server: b.key, generation: generation, reachable: false)
@@ -265,6 +283,8 @@ import SwiftUI
           delay = min(120, delay * 2)
         }
       }
+      if active { presence.finishedSync(server: b.key, succeeded: completed) }
+      syncTask = nil
       busy = false
       try? refresh()
       if let wait, active {
@@ -274,12 +294,15 @@ import SwiftUI
         resync = false
         trigger()
       }
+      return completed && active
     }
+    syncTask = task
+    return task
   }
   /// Refresh only while the banner is visible and the last sync succeeded.
   /// Failed connections already use the sync worker's retry schedule.
   func refreshIdleConnection() {
-    if active, !busy, connectionBadge == .connected,
+    if active, !busy, connectionBadge == .connected || connectionBadge == .syncFailed,
       syncStatus == "Synced" || syncStatus == "Sync incomplete"
     {
       trigger()

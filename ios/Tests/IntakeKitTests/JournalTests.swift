@@ -4,6 +4,19 @@ import XCTest
 
 final class JournalTests: XCTestCase {
   let binding = Binding(origin: "https://example.com", account: "one", username: "sample")
+  func testFailedSyncStaysVisibleUntilTheWholeSyncSucceeds() {
+    var presence = ServerPresence()
+    presence.report(server: "one", generation: presence.generation, reachable: true)
+    presence.finishedSync(server: "one", succeeded: false)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .syncFailed)
+    presence.networkChanged(offline: false)
+    presence.report(server: "one", generation: presence.generation, reachable: true)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .syncFailed)
+    XCTAssertEqual(presence.badge(server: "two", signedIn: true), .checking)
+    XCTAssertNil(presence.badge(server: nil, signedIn: false))
+    presence.finishedSync(server: "one", succeeded: true)
+    XCTAssertEqual(presence.badge(server: "one", signedIn: true), .connected)
+  }
   func testBadgeRequiresAResponseFromTheCurrentServerOnTheCurrentNetwork() {
     var presence = ServerPresence()
     XCTAssertNil(presence.badge(server: nil, signedIn: false))

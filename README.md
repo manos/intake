@@ -8,7 +8,11 @@ Intake starts empty. Add your own names, colors, quantities and units. No accoun
 
 Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or later. For a device install, use your development signing team. The app opens to an empty local journal without a server account. Its SQLite journal lives in Application Support and is eligible for ordinary iCloud **device backup** when enabled for Intake. This is full-device recovery, not live iCloud sync. Device-only server credentials do not migrate.
 
-**Existing user?** Open Settings → Sync and sign in to your Intake server. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
+On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
+
+**Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
+
+Once connected, pull down and release on **Today** to sync. A spinner follows the sync, then **Success!** appears briefly. **Sync failed** means the sync did not finish; the status below the badge gives details. A local-only journal shows no connection badge or sign-in prompt.
 
 The native client requires an HTTPS origin with a hostname-matching, publicly verifiable certificate. Set `PUBLIC_ORIGIN` to exactly the HTTPS origin your phone uses. Three automatic renewal options:
 

@@ -18,6 +18,7 @@ struct SettingsView: View {
   @State var address = ""
   @State var name = ""
   @State var password = ""
+  @State private var connecting = false
   @State var register = false
   @State var supportsSignup = false
   @State var keepLocal = true
@@ -44,8 +45,10 @@ struct SettingsView: View {
               Button("Compare entire server history") { m.reconcile() }.disabled(m.busy)
               Button("Sign out") { m.signout() }.disabled(m.busy)
             }
+          } else if !connecting && m.candidate == nil {
+            Button("Connect to server", systemImage: "icloud") { connecting = true }
           }
-          if !m.signedIn {
+          if !m.signedIn && (m.state.binding != nil || connecting) && m.candidate == nil {
             if !register { Text("Use your Intake server username and password.").font(.footnote) }
             TextField("HTTPS server", text: $address).keyboardType(.URL)
               .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -54,7 +57,7 @@ struct SettingsView: View {
             SecureField("Password", text: $password).textContentType(
               register ? .newPassword : .password)
             if supportsSignup { Toggle("Create account", isOn: $register) }
-            Button(register ? "Create account" : "Sign in") {
+            Button(register ? "Create account" : (m.state.binding == nil ? "Connect" : "Sign in")) {
               m.authenticate(address, name, password, signup: register)
               password = ""
             }.disabled(address.isEmpty || name.isEmpty || password.isEmpty || m.busy)
@@ -66,13 +69,29 @@ struct SettingsView: View {
                 } catch { m.message = error.localizedDescription }
               }
             }.disabled(address.isEmpty || m.busy)
+            if m.state.binding == nil {
+              Button("Cancel") {
+                password = ""
+                register = false
+                connecting = false
+              }.disabled(m.busy)
+            }
           }
           if let c = m.candidate {
             Text(
               "Sync this journal with \(c.profile.username) on \(c.server.origin.absoluteString)? Entries on this iPhone will be sent there."
             )
             Button("Sync this journal") { m.approveMerge() }.disabled(m.busy)
-            Button("Cancel") { m.candidate = nil }
+            Button("Cancel") {
+              m.candidate = nil
+              connecting = false
+            }
+          }
+          Link(
+            destination: URL(
+              string: "https://github.com/manos/intake/blob/main/README.md#native-iphone-app")!
+          ) {
+            Label("Setup and sync guide", systemImage: "book")
           }
         }
         ForEach(m.state.competingDays.keys.sorted(), id: \.self) { day in
