@@ -46,6 +46,7 @@ struct SettingsView: View {
             }
           }
           if !m.signedIn {
+            if !register { Text("Use your Intake server username and password.").font(.footnote) }
             TextField("HTTPS server", text: $address).keyboardType(.URL)
               .textInputAutocapitalization(.never).autocorrectionDisabled()
             TextField("Username", text: $name).textInputAutocapitalization(.never)

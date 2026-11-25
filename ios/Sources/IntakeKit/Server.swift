@@ -8,9 +8,10 @@ private struct Registration: Decodable { let allowed: Bool }
 private struct Capabilities: Decodable { let account_deletion: Bool }
 public enum ServerError: LocalizedError {
   case response(Int, Int?)
-  case cursorReset, wrongAccount, invalid
+  case invalidCredentials, cursorReset, wrongAccount, invalid
   public var errorDescription: String? {
     switch self {
+    case .invalidCredentials: return "Username or password wasn’t recognized."
     case .response(401, _): return "Sign in again to sync this account."
     case .response(429, let delay): return "Too many requests. Retry in \(delay ?? 60) seconds."
     case .response(let n, _): return "The server could not complete the request (\(n))."
@@ -30,7 +31,7 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate {
 public final class Server {
   public let origin: URL
   private let session: URLSession
-  public init(_ address: String) throws {
+  public convenience init(_ address: String) throws {
     guard var c = URLComponents(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
       c.scheme?.lowercased() == "https",
       let host = c.host, !host.isEmpty, c.user == nil, c.password == nil, c.fragment == nil,
@@ -43,7 +44,12 @@ public final class Server {
     c.scheme = "https"
     if c.port == 443 { c.port = nil }
     guard let url = c.url else { throw Problem.message("Invalid server address.") }
-    origin = url
+    self.init(origin: url)
+  }
+  // The app enters through the HTTPS-only initializer. Interop tests use the
+  // same transport and cookie handling against their disposable loopback server.
+  internal init(origin: URL) {
+    self.origin = origin
     let config = URLSessionConfiguration.ephemeral
     config.httpShouldSetCookies = false
     config.httpCookieStorage = nil
@@ -92,6 +98,7 @@ public final class Server {
   public func authenticate(username: String, password: String, signup: Bool, timezone: String)
     async throws -> (Profile, String)
   {
+    let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
     let answer: (Data, HTTPURLResponse)
     if signup {
       guard try await canRegister() else {
@@ -102,7 +109,11 @@ public final class Server {
       answer = try await call("signup", method: "POST", body: payload)
     } else {
       let basic = Data("\(username):\(password)".utf8).base64EncodedString()
-      answer = try await call("session", method: "POST", basic: "Basic " + basic)
+      do {
+        answer = try await call("session", method: "POST", basic: "Basic " + basic)
+      } catch ServerError.response(401, _) {
+        throw ServerError.invalidCredentials
+      }
     }
     guard let header = answer.1.value(forHTTPHeaderField: "Set-Cookie"),
       let cookie = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": header], for: origin)

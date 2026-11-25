@@ -5,6 +5,38 @@ import XCTest
 
 /// CI starts an isolated FastAPI process on loopback; the shipping transport is HTTPS-only.
 final class BackendInteropTests: XCTestCase {
+  func testNativeLoginAndRelaunchUseDifferentErrorsForCredentialsAndSession() async throws {
+    guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
+      let origin = URL(string: root), origin.host == "127.0.0.1"
+    else { throw XCTSkip("Requires the disposable loopback backend.") }
+    let username = UUID().uuidString
+    // Spaces are permitted in a password; only surrounding username whitespace is ignored.
+    let password = " " + UUID().uuidString + " "
+    let client = Server(origin: origin)
+    let (account, _) = try await client.authenticate(
+      username: username, password: password, signup: true, timezone: "UTC")
+    do {
+      _ = try await client.authenticate(
+        username: username, password: UUID().uuidString, signup: false, timezone: "UTC")
+      XCTFail("A rejected login must not establish a session")
+    } catch {
+      XCTAssertEqual(error.localizedDescription, "Username or password wasn’t recognized.")
+    }
+    let (signedIn, token) = try await client.authenticate(
+      username: " \(username)\n", password: password, signup: false, timezone: "UTC")
+    XCTAssertEqual(signedIn.id, account.id)
+    let reopened = Server(origin: origin)
+    let restored = try await reopened.me(token, account: account.id)
+    XCTAssertEqual(restored.id, account.id)
+    _ = try await reopened.snapshot(token: token, account: account.id)
+    try await reopened.logout(token: token, account: account.id)
+    do {
+      _ = try await reopened.me(token, account: account.id)
+      XCTFail("A revoked session must not sync")
+    } catch {
+      XCTAssertEqual(error.localizedDescription, "Sign in again to sync this account.")
+    }
+  }
   func testLostAcknowledgementAndPurgeOnExistingServer() async throws {
     guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
       let origin = URL(string: root),
