@@ -71,8 +71,7 @@ public struct Record: Codable, Equatable, Identifiable {
     }
     func numeric(_ a: Value?, _ b: Value?) -> Bool {
       guard let x = a?.text, let y = b?.text else { return false }
-      return x == y
-        || (JournalTime.decimal(x) != nil && JournalTime.decimal(x) == JournalTime.decimal(y))
+      return x == y || (JournalTime.exact(x).map { $0 == JournalTime.exact(y) } ?? false)
     }
     return data.keys.allSatisfy { key in
       if ["amount", "quantity"].contains(key) { return numeric(data[key], other.data[key]) }
@@ -103,6 +102,25 @@ public struct Binding: Codable, Equatable {
   public var key: String { origin + "|" + account }
 }
 public enum JournalTime {
+  /// Text normalization for equality. Numeric display arithmetic can round at 38 digits.
+  static func exact(_ value: String) -> String? {
+    let fields = value.lowercased().split(separator: "e", omittingEmptySubsequences: false)
+    guard fields.count <= 2, var m = fields.first.map(String.init) else { return nil }
+    guard let power = fields.count == 1 ? 0 : Int(fields[1]), (-100000...100000).contains(power)
+    else { return nil }
+    if m.first == "+" { m.removeFirst() }
+    let parts = m.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count <= 2 else { return nil }
+    let fraction = parts.count == 2 ? parts[1].count : 0
+    var digits = String(parts.joined().drop(while: { $0 == "0" }))
+    guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return nil }
+    var shift = power - fraction
+    while digits.last == "0" {
+      digits.removeLast()
+      shift += 1
+    }
+    return "\(digits)e\(shift)"
+  }
   public static func decimal(_ s: String) -> Decimal? {
     guard s.count <= 64,
       s.range(
@@ -158,11 +176,17 @@ public struct JournalState: Codable {
   public var pending: [Operation] = [], frozen: [String: Data] = [:]
   public var conflicts: [String: Conflict] = [:], purges: [String] = []
   public var importConflicts: [String: Record] = [:]
+  public var deletionChoice: Bool?
+  public var retryAfter: Date?
+  public func maySync(at now: Date) -> Bool { retryAfter.map { $0 <= now } ?? true }
   public var cursor = 0, incomplete = false, customized = false
   public var binding: Binding?, settings = Settings(), settingsConflict: Settings?
   public init() {}
   public var hasLocalData: Bool {
     customized || !records.isEmpty || !pending.isEmpty || !purges.isEmpty
+  }
+  public var competingDays: [String: [Record]] {
+    Dictionary(grouping: visible(.day)) { $0.text("date") }.filter { $0.value.count > 1 }
   }
   public func visible(_ entity: Entity) -> [Record] {
     records.values.filter { $0.entity == entity && !$0.deleted }.sorted {

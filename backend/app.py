@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -243,6 +244,15 @@ def create_app(config_dir=None):
 
     authenticated_user = Depends(user)
 
+    @contextmanager
+    def account_write(uid):
+        # Authentication can precede an intervening account deletion. Acquire the
+        # SQLite writer lock and check identity before creating any account data.
+        with connect(app.state.db, write=True) as db:
+            if db.get(User, uid) is None:
+                raise HTTPException(401, "Account no longer exists")
+            yield db
+
     def browser_session(db, response, request, user_id):
         token = secrets.token_urlsafe(32)
         # Rotate this browser's session without ending sessions on other devices.
@@ -278,7 +288,7 @@ def create_app(config_dir=None):
     def session(request: Request, response: Response, account=authenticated_user):
         if not request.headers.get("authorization"):
             raise HTTPException(401, "Password required", headers=challenge(request))
-        with connect(app.state.db, write=True) as db:
+        with account_write(account["id"]) as db:
             browser_session(db, response, request, account["id"])
         return me(account)
 
@@ -348,7 +358,7 @@ def create_app(config_dir=None):
         uid = account["id"]
         if request.headers.get("x-intake-account") != uid:
             raise HTTPException(400, "Specify the connected account")
-        with connect(app.state.db, write=True) as db:
+        with account_write(uid) as db:
             for model in (Receipt, Change, Record, BrowserSession):
                 db.execute(delete(model).where(model.user_id == uid))
             db.execute(delete(User).where(User.id == uid))
@@ -388,7 +398,7 @@ def create_app(config_dir=None):
     @app.put("/api/settings")
     def settings(payload: Settings, account=authenticated_user):
         data = payload.model_dump()
-        with connect(app.state.db, write=True) as db:
+        with account_write(account["id"]) as db:
             db.execute(
                 update(User)
                 .where(User.id == account["id"])
@@ -423,9 +433,7 @@ def create_app(config_dir=None):
                     }
                 )
                 continue
-            with connect(app.state.db, write=True) as db:
-                if db.get(User, uid) is None:
-                    raise HTTPException(401, "Account no longer exists")
+            with account_write(uid) as db:
                 receipt = db.get(Receipt, (uid, op.id))
                 if receipt:
                     results.append(
@@ -523,9 +531,7 @@ def create_app(config_dir=None):
         except ValueError:
             raise HTTPException(404, "Item not found") from None
         uid = account["id"]
-        with connect(app.state.db, write=True) as db:
-            if db.get(User, uid) is None:
-                raise HTTPException(401, "Account no longer exists")
+        with account_write(uid) as db:
             item = db.get(Record, (uid, item_id))
             if item and item.entity != "item":
                 raise HTTPException(404, "Item not found")

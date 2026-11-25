@@ -14,7 +14,7 @@ import SwiftUI
               TodayView().tabItem { Label("Today", systemImage: "clock") }
               HistoryView().tabItem { Label("History", systemImage: "calendar") }
               SettingsView().tabItem { Label("Settings", systemImage: "gearshape") }
-            }
+            }.id(model.scope)
           }
         } else {
           ContentUnavailableView {
@@ -352,6 +352,7 @@ struct DayEditor: View {
   let day: String
   @State private var note = ""
   @State private var zero = false
+  @State private var original: Record?
   var existing: Record? { m.state.visible(.day).first { $0.text("date") == day } }
   var body: some View {
     NavigationStack {
@@ -359,14 +360,16 @@ struct DayEditor: View {
         TextField("Day note", text: $note, axis: .vertical)
         Toggle("Confirmed zero day", isOn: $zero)
       }.navigationTitle(day).onAppear {
+        original = existing
         note = existing?.text("note") ?? ""
         zero = existing?.data["zero"] == .bool(true)
       }
       .toolbar {
         Button("Save") {
-          let r = Record(
-            .day, id: existing?.id ?? JournalTime.dayID(day),
+          var r = Record(
+            .day, id: original?.id ?? JournalTime.dayID(day),
             data: ["date": .string(day), "note": .string(note), "zero": .bool(zero)])
+          r.version = original?.version ?? 0
           if m.change({ try $0.put(r) }) { dismiss() }
         }
         Button("Cancel") { dismiss() }

@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
 
 from backend.db import connect, create_user
@@ -56,3 +57,31 @@ def test_delete_bound_account_removes_journal_and_revokes_all_sessions(
         for model in (Record, Receipt, Change, BrowserSession):
             assert db.scalar(select(model).where(model.user_id == first)) is None
     assert client.get("/api/me", auth=("other", PASSWORD)).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "method,endpoint", [("POST", "/api/session"), ("PUT", "/api/settings")]
+)
+def test_deleted_account_cannot_finish_already_authenticated_write(
+    tmp_path, monkeypatch, method, endpoint
+):
+    client = client_for(tmp_path, monkeypatch)
+    profile = login(client).json()
+    assert (
+        client.delete(
+            "/api/account", headers={"X-Intake-Account": profile["id"]}
+        ).status_code
+        == 204
+    )
+    # Simulate the authenticated dependency returning just before another writer deletes the user.
+    route = next(route for route in client.app.routes if route.path == endpoint)
+    client.app.dependency_overrides[route.dependant.dependencies[0].call] = lambda: (
+        profile
+    )
+    response = client.request(
+        method,
+        endpoint,
+        auth=("sample", PASSWORD),
+        json={"timezone": "UTC", "day_start": 2},
+    )
+    assert response.status_code == 401

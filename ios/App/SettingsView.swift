@@ -25,6 +25,7 @@ struct SettingsView: View {
   @State var importing = false
   @State var exporting = false
   @State var preview: [Record]?
+  @State var previewScope = ""
   @State var file = JournalFile(Data())
   @State var exportName = "intake.json"
   @State var timezone = ""
@@ -40,6 +41,7 @@ struct SettingsView: View {
               m.syncStatus.isEmpty ? (m.signedIn ? "Connected" : "Sign in to sync") : m.syncStatus)
             if m.signedIn {
               Button("Sync now") { m.trigger() }.disabled(m.busy)
+              Button("Compare entire server history") { m.reconcile() }.disabled(m.busy)
               Button("Sign out") { m.signout() }.disabled(m.busy)
             }
           }
@@ -72,9 +74,24 @@ struct SettingsView: View {
             Button("Cancel") { m.candidate = nil }
           }
         }
+        ForEach(m.state.competingDays.keys.sorted(), id: \.self) { day in
+          Section("Choose the day note for \(day)") {
+            ForEach(m.state.competingDays[day] ?? []) { r in
+              Button("Keep: \(r.text("note"))\(r.data["zero"] == .bool(true) ? " (zero day)" : "")")
+              {
+                m.change { try $0.resolveDay(day, using: r) }
+              }
+            }
+          }
+        }
         if !m.state.conflicts.isEmpty {
           Section("Resolve conflicts") {
-            ForEach(m.state.conflicts.keys.sorted(), id: \.self) { id in
+            ForEach(
+              m.state.conflicts.keys.filter { id in
+                guard let r = m.state.records[id], r.entity == .day else { return true }
+                return m.state.competingDays[r.text("date")] == nil
+              }.sorted(), id: \.self
+            ) { id in
               let conflict = m.state.conflicts[id]
               Text(conflict?.reason ?? "Different versions")
               Text("This phone: " + summary(m.state.records[id]))
@@ -120,13 +137,18 @@ struct SettingsView: View {
               m.change { try $0.resolveImport(id, useImported: true) }
             }
           }
-          Button("Import JSON or CSV") { importing = true }
+          Button("Import JSON or CSV") {
+            previewScope = m.scope
+            importing = true
+          }
           if let preview {
             Text(
               "\(preview.filter { $0.entity == .item }.count) items, \(preview.filter { $0.entity == .entry }.count) entries, \(preview.filter { $0.entity == .day }.count) days"
             )
             Button("Import these records") {
-              if m.change({ try $0.applyImport(preview) }) { self.preview = nil }
+              if m.change({ try $0.applyImport(preview, expectedScope: previewScope) }) {
+                self.preview = nil
+              }
             }
             Button("Cancel import") { self.preview = nil }
           }
@@ -147,6 +169,19 @@ struct SettingsView: View {
         }
         if let b = m.state.binding {
           Section("Server account") {
+            if let choice = m.state.deletionChoice {
+              Text(
+                "The server’s deletion response was not confirmed. You can finish on this iPhone without sending another request."
+              )
+              Button(
+                choice ? "Disconnect and keep this journal" : "Disconnect and erase this journal",
+                role: choice ? nil : .destructive
+              ) {
+                m.finishOnPhone(keepLocal: choice)
+              }.disabled(m.busy)
+              Button("Stay connected") { m.change { try $0.deletionAttempt(keepLocal: nil) } }
+                .disabled(m.busy)
+            }
             Toggle("Keep a local copy on this iPhone", isOn: $keepLocal)
             Button("Delete server account", role: .destructive) { confirmDelete = true }.disabled(
               !m.signedIn || m.busy

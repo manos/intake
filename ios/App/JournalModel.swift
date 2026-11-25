@@ -12,6 +12,7 @@ import SwiftUI
   @Published var syncStatus = ""
   @Published var candidate: Candidate?
   @Published var undo: Record?
+  var scope: String { (journal?.profile ?? "") + "|" + (state.binding?.key ?? "local") }
   struct Candidate: Identifiable {
     let id = UUID()
     let server: Server, profile: Profile, token: String, signup: Bool
@@ -132,6 +133,18 @@ import SwiftUI
         target = try Journal(file: file, profile: UUID().uuidString)
       }
     }
+    if let source = journal, source.profile != target.profile, state.binding == nil,
+      state.hasLocalData
+    {
+      guard approvedPopulatedLink else {
+        candidate = c
+        return
+      }
+      let (rows, cursor) = try await c.server.snapshot(token: c.token, account: c.profile.id)
+      try target.link(
+        binding, remote: rows, cursor: cursor, settings: c.profile.settings, recovering: true)
+      try target.absorb(local: source.profile)
+    }
     if try target.read().binding == nil {
       let (rows, cursor) = try await c.server.snapshot(token: c.token, account: c.profile.id)
       // The journal may have received its first edit while the download was running.
@@ -143,9 +156,9 @@ import SwiftUI
       }
       try target.link(
         binding, remote: rows, cursor: cursor, settings: c.profile.settings, newAccount: c.signup)
-      if c.signup,
-        let settings = try target.read().settingsConflict.map({ _ in try target.read().settings })
-      {
+      let linked = try target.read()
+      if c.signup, linked.settingsConflict != nil {
+        let settings = linked.settings
         try await c.server.settings(settings, token: c.token, account: c.profile.id)
         try target.preferences(settings)
       }
@@ -169,7 +182,13 @@ import SwiftUI
     }
   }
   func trigger() {
-    guard active, signedIn, candidate == nil, let journal, let b = state.binding else { return }
+    guard active, signedIn, candidate == nil, state.deletionChoice == nil, let journal,
+      let b = state.binding
+    else { return }
+    if !state.maySync(at: .now), let until = state.retryAfter {
+      scheduleRetry(until.timeIntervalSinceNow)
+      return
+    }
     if busy {
       resync = true
       return
@@ -223,6 +242,7 @@ import SwiftUI
         syncStatus = error.localizedDescription
         if case ServerError.response(429, let seconds) = error {
           wait = seconds ?? 60
+          try? journal.postpone(until: Date().addingTimeInterval(Double(max(1, wait ?? 60))))
         } else {
           wait = delay
           delay = min(120, delay * 2)
@@ -232,14 +252,30 @@ import SwiftUI
       try? refresh()
       if let wait, active {
         resync = false
-        retry = Task {
-          try? await Task.sleep(for: .seconds(wait))
-          if !Task.isCancelled { self.trigger() }
-        }
+        scheduleRetry(Double(wait))
       } else if resync {
         resync = false
         trigger()
       }
+    }
+  }
+  private func scheduleRetry(_ seconds: Double) {
+    retry?.cancel()
+    retry = Task {
+      try? await Task.sleep(for: .seconds(max(1, min(seconds, 86400))))
+      if !Task.isCancelled { self.trigger() }
+    }
+  }
+  func reconcile() {
+    guard let b = state.binding, let journal, state.maySync(at: .now), state.deletionChoice == nil
+    else { return }
+    foregroundWork {
+      guard let token = try DeviceSession.load(b.key) else { throw ServerError.response(401, nil) }
+      let server = try Server(b.origin)
+      let p = try await server.me(token, account: b.account)
+      let (rows, cursor) = try await server.snapshot(token: token, account: b.account)
+      try journal.link(b, remote: rows, cursor: cursor, settings: p.settings, recovering: true)
+      self.resync = true
     }
   }
   func signout() {
@@ -263,7 +299,18 @@ import SwiftUI
         throw Problem.message("Update this Intake server to enable account deletion.")
       }
       _ = try await server.me(token, account: b.account)
+      try journal.deletionAttempt(keepLocal: keepLocal)
+      try self.refresh()
       try await server.deleteAccount(token: token, account: b.account)
+      try journal.disconnectAfterDeletion(keepLocal: keepLocal)
+      try DeviceSession.set(b.key, nil)
+      self.undo = nil
+      self.syncStatus = ""
+    }
+  }
+  func finishOnPhone(keepLocal: Bool) {
+    guard let b = state.binding, state.deletionChoice != nil, let journal else { return }
+    foregroundWork {
       try journal.disconnectAfterDeletion(keepLocal: keepLocal)
       try DeviceSession.set(b.key, nil)
       self.undo = nil
