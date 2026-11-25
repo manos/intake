@@ -10,7 +10,7 @@ Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or 
 
 On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
 
-Daily totals appear beneath today's entries. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
+Daily totals appear just below **Edit day note or zero day**, before the first entry. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
 
 **Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
 

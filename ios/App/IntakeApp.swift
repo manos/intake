@@ -171,19 +171,23 @@ struct TodayView: View {
               Text("Confirmed zero").font(.caption)
             }
           }
-          Button("Edit day note or zero day") { dayEditor = true }
+          Button {
+            dayEditor = true
+          } label: {
+            JournalActionLabel(title: "Edit day note or zero day")
+          }.buttonStyle(.borderless)
+          if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+              Text("Daily totals").font(.caption.weight(.semibold))
+              Text(totals(entries)).font(.subheadline)
+            }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
+          }
           ForEach(entries) { r in
             Button {
               edit = r
             } label: {
               EntryLine(row: r)
             }
-          }
-          if !entries.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
-              Text("Daily totals").font(.caption.weight(.semibold))
-              Text(totals(entries)).font(.subheadline)
-            }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
           }
         }
         if let undo = m.undo {
@@ -238,12 +242,22 @@ private struct LinkedRefresh: ViewModifier {
   }
 }
 
+private struct JournalActionLabel: View {
+  let title: String
+  static let minimumWidth: CGFloat = 44
+  var body: some View {
+    Text(title).font(.subheadline.weight(.semibold))
+      .padding(.horizontal, 9).padding(.vertical, 5)
+      .background(.tint.opacity(0.12), in: Capsule())
+      .frame(minWidth: Self.minimumWidth, minHeight: 44).contentShape(Rectangle())
+  }
+}
+
 private struct InlinePresets: View {
   let amounts: [String]
   let item: Record
   let log: (String) -> Void
   private let spacing: CGFloat = 6
-  private let minimumWidth: CGFloat = 44
 
   var body: some View {
     if !amounts.isEmpty {
@@ -254,7 +268,10 @@ private struct InlinePresets: View {
             // Each button is at least 44pt wide. Never construct prefixes
             // that cannot possibly fit the space remaining in this row.
             let count = min(
-              amounts.count, max(0, Int((bounds.size.width + spacing) / (minimumWidth + spacing))))
+              amounts.count,
+              max(
+                0, Int((bounds.size.width + spacing) / (JournalActionLabel.minimumWidth + spacing)))
+            )
             fitted(count).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
           }
         }
@@ -270,10 +287,7 @@ private struct InlinePresets: View {
             Button {
               log(amount)
             } label: {
-              Text("\(amount) \(unit)").font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 9).padding(.vertical, 5)
-                .background(.tint.opacity(0.12), in: Capsule())
-                .frame(minWidth: minimumWidth, minHeight: 44).contentShape(Rectangle())
+              JournalActionLabel(title: "\(amount) \(unit)")
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Log \(amount) \(unit) of \(item.text("name"))")
