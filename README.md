@@ -4,6 +4,20 @@ A quiet, private journal for medicines and anything else you choose to track. On
 
 Intake starts empty. Add your own names, colors, quantities and units. No accounts, medicines, goals or categories are preconfigured.
 
+## Native iPhone app
+
+Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or later. For a device install, use your development signing team. The app opens to an empty local journal without a server account. Its SQLite journal lives in Application Support and is eligible for ordinary iCloud **device backup** when enabled for Intake. This is full-device recovery, not live iCloud sync. Device-only server credentials do not migrate.
+
+**Existing user?** Open Settings → Sync and sign in to your Intake server. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
+
+The native client requires an HTTPS origin with a hostname-matching, publicly verifiable certificate. Set `PUBLIC_ORIGIN` to exactly the HTTPS origin your phone uses. Three automatic renewal options:
+
+- **[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)** (private tailnet): with tailnet HTTPS enabled, run `tailscale serve --bg http://127.0.0.1:8000` on the Compose host. Enter the full HTTPS name it prints and connect the iPhone to the same tailnet. Serve obtains the certificate; no public port or Funnel needed.
+- **[Nginx Proxy Manager](https://nginxproxymanager.com/)**: create a Proxy Host for your DNS name pointing to the app's reachable private port, select a Let's Encrypt certificate and enable Force SSL. A proxy container's `localhost` means that container, not Intake. Use DNS validation for private-only ingress.
+- **[cert-manager](https://cert-manager.io/docs/usage/ingress/)**: use a production Let's Encrypt ACME issuer on your existing Kubernetes Ingress. Set `spec.tls.hosts` to the public certificate name and a `secretName` for renewal. DNS-01 allows the service itself to stay private.
+
+Connected users can delete their own server account from Settings, including when registration is closed. Confirm the named server and account and choose whether to retain a local-only copy. A server must be online for deletion. Older releases still support sign-in and migration; upgrade the backend to use account deletion or native signup.
+
 ## Run locally
 
 Requires Docker with Compose.

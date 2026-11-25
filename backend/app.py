@@ -339,6 +339,23 @@ def create_app(config_dir=None):
             first_run = db.scalar(select(User.id).limit(1)) is None
         return {"allowed": first_run or allow_signup, "first_run": first_run}
 
+    @app.get("/api/capabilities")
+    def capabilities():
+        return {"account_deletion": True}
+
+    @app.delete("/api/account", status_code=204)
+    def delete_account(request: Request, account=authenticated_user):
+        uid = account["id"]
+        if request.headers.get("x-intake-account") != uid:
+            raise HTTPException(400, "Specify the connected account")
+        with connect(app.state.db, write=True) as db:
+            for model in (Receipt, Change, Record, BrowserSession):
+                db.execute(delete(model).where(model.user_id == uid))
+            db.execute(delete(User).where(User.id == uid))
+        response = Response(status_code=204)
+        response.delete_cookie(SESSION_COOKIE, path="/api")
+        return response
+
     @app.post("/api/signup", status_code=201)
     def signup(
         payload: Signup,
@@ -407,6 +424,8 @@ def create_app(config_dir=None):
                 )
                 continue
             with connect(app.state.db, write=True) as db:
+                if db.get(User, uid) is None:
+                    raise HTTPException(401, "Account no longer exists")
                 receipt = db.get(Receipt, (uid, op.id))
                 if receipt:
                     results.append(
@@ -505,6 +524,8 @@ def create_app(config_dir=None):
             raise HTTPException(404, "Item not found") from None
         uid = account["id"]
         with connect(app.state.db, write=True) as db:
+            if db.get(User, uid) is None:
+                raise HTTPException(401, "Account no longer exists")
             item = db.get(Record, (uid, item_id))
             if item and item.entity != "item":
                 raise HTTPException(404, "Item not found")

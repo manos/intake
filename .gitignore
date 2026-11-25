@@ -8,3 +8,7 @@ config/
 .env
 .superpowers/
 *.egg-info/
+.build/
+DerivedData/
+xcuserdata/
+.swiftpm/
