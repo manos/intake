@@ -1,0 +1,76 @@
+# Intake for iPhone: delivery plan
+
+**Recommendation:** Build a SwiftUI app that opens directly to an empty journal, even on a phone that has never been online. Saving an entry means it is on that phone. iCloud device backup provides recovery when enabled; connecting a self-hosted Intake account adds two-way sync. Neither a server nor an iCloud sign-in is needed to use the journal.
+
+**Scope:** Proposed first release, based on Intake `bc9ce8b`. Keep the Svelte app working for desktop users and migration. Use the existing FastAPI/SQLAlchemy service and its SQLite database. No server installation, new hosted service, or account migration is required for existing users.
+
+**Independent review:** Gemini 4 Carbon (`google/gemini-4-carbon`): **approve with amendments**. The plan incorporates its findings on offline deletion, precision on retries, missing import parents, replaying change history and backup consistency. Its suggested background checkpoint is not a substitute for proving restore on another device.
+
+## 1. Establish the native target and compatibility contract
+
+Add `ios/Intake.xcodeproj`, a SwiftUI iPhone target, and a small Swift package under `ios/` for the journal and sync logic. Proposed deployment target: iOS 17+. Use SQLite through GRDB: one explicit transaction can cover the displayed entry, its pending change, and recovery metadata. SwiftData is viable, but its model layer adds little to a journal that already has explicit IDs, revisions, and tombstones. A web wrapper would keep the browser storage model; CloudKit would add a second sync service the user did not ask for.
+
+Build synthetic shared fixtures from `backend/models.py`, `frontend/src/core.ts`, `frontend/src/history.ts` and `frontend/src/import.ts`. Cover item, entry and day payloads; decimal strings and legacy JSON numbers; offset timestamps; historical names/colors/units; and the date-derived day UUID. Preserve imported ID spelling on the wire, use lowercase UUIDs for new records, and preserve an unedited timestamp exactly. Generate day IDs from the first 16 bytes of SHA-256 of `intake-day:YYYY-MM-DD`, setting the version and variant bits exactly as in `dayId`. Encode new quantities as validated decimal strings without passing through `Double`. Keep original wire values when replaying an immutable operation.
+
+**Exit:** Swift and TypeScript agree on a day ID, a repeated DST hour, day-boundary grouping, separate unit totals and the same exported journal. CI adds a macOS build/test job alongside the existing Linux checks.
+
+## 2. Deliver the complete local journal first
+
+Keep the SQLite store in a protected subdirectory of `Library/Application Support`. Give each local journal its own identity independent of any server account. Store records, settings, sync binding, cursor, outstanding operations and unresolved conflicts transactionally. Keep UI reads local. A failed write must never show “Saved.” A journal that has never linked to a server shows no pending-upload banner and makes no app-initiated network requests.
+
+Implement in two usable slices:
+
+1. **Today and editing:** user-defined items, colors, units, amounts and presets; one-tap logging, notes, backdating, editing, undo, archive and permanent deletion. Keep Today totals visible. Distinguish a confirmed zero day from an unrecorded day. Store the chosen timezone and day boundary locally.
+2. **History and portability:** Week, Timeline, By item and Calendar with shared filters, actual note text and entry drill-down. Support Dynamic Type and VoiceOver, including a readable alternative to charts. Offer offline JSON export and previewed JSON/CSV import from Files. Import preserves item references and IDs; never merge entries solely by name or time. Real `.xls` export can use the existing server when connected, with pending device edits included in the submitted snapshot.
+
+Before committing an import, verify every entry's item ID exists in the journal or in the same import. This mirrors `App.svelte`'s check after parsing the file. Reject the batch with a row-level explanation if a parent is missing; do not invent a medicine from an entry snapshot.
+
+**Exit:** On a fresh install in airplane mode, create an item, log and edit it, kill the app, reopen it, see the same history and export it. Import a real-format synthetic web backup twice without duplicating its records. Reject an orphan CSV row without a partial import. Include a schema-upgrade fixture and a write-failure case.
+
+## 3. Prove device backup and restore
+
+Use the OS-managed **iCloud device backup**, not a CloudKit container or a SQLite file in iCloud Drive. Keep the journal, local settings, unresolved edits and outbox eligible for backup together. Exclude disposable caches and temporary exports. Use iOS file protection for the database and sidecars; do not encrypt the journal with a device-only key that would make a restored database unreadable. Keep the optional server session in a non-synchronizing, device-only Keychain item, outside the backup. A restored phone can read and edit the journal before signing back in.
+
+Describe the actual guarantee: iOS controls backup timing and the user can disable backup. Intake cannot report that the latest entry has reached iCloud. Deleting and reinstalling the app is not a device restore. JSON export is a separate portable copy of the visible journal, not a backup of authentication or the sync queue.
+
+For the first release use a serialized GRDB `DatabaseQueue` in SQLite rollback-journal mode with short transactions. Network waits never hold database locks. Finish or roll back transactions before suspension; defer database work while protected data is unavailable. This needs no last-minute WAL checkpoint to consolidate acknowledged writes. If a later switch enables WAL, include committed but uncheckpointed writes in the physical restore gate and keep the database and WAL together.
+
+**Exit:** Restore a synthetic journal from an actual device backup to another device. Include recently committed SQLite writes, a pending edit and an unresolved conflict; exercise lock, suspend and force-quit boundaries. Check SQLite integrity and compare records and pending operations offline, confirm the old credential is unavailable, then sign back in and prove replay produces no duplicate entry. For App Store distribution, resolve [App Review Guideline 5.1.3(ii)](https://developer.apple.com/app-store/review/guidelines/#health-and-health-research) for this medicine journal before promising iCloud backup in the listing. The guideline mentions personal health information in iCloud; it does not give an explicit device-backup exception. If distribution changes the backup requirement, bring that decision back before release.
+
+## 4. Connect a server without mixing journals
+
+Settings → Sync accepts a canonical HTTPS origin. Use an isolated, ephemeral `URLSession`, normal iOS certificate and hostname validation, no URL credentials and no forwarding authenticated redirects. Exchange the entered password once at `POST /api/session`, or use `/api/signup` when `/api/registration` permits it. Extract `intake_session` from `Set-Cookie`, keep the secret in device-only Keychain, and send it only on `/api` calls to that bound origin. Send `X-Requested-With: XMLHttpRequest` for cookie authentication, including `/api/me`, `/api/settings` and `/api/logout`; bind journal calls with `X-Intake-Account`. Verify `/api/me` on sign-in, relaunch and reconnect. Expired sessions leave a fully usable journal and pending edits; reauthentication stays in the app.
+
+On first link, authenticate and pull **all** pages into a staging area before any upload. `/api/sync` returns a change history, not a snapshot: fold changes in cursor order, retaining the newest version per ID, and cascade terminal purges before calculating the preview. Show the destination and what will transfer. An empty phone can just open the remote journal. For a populated phone, offer to combine with that account or open the remote journal separately. Cancel leaves both journals as they were.
+
+For combine: compare stable IDs and values; reuse identical remote records and versions; queue local-only items before dependent entries; bring remote-only records down. A differing record with the same ID needs a choice. Also match day notes by civil date: reuse the existing server day ID when there is only one, and surface differing notes or ambiguous duplicate dates instead of creating another day row. A terminal purge wins. Do not infer that distinct entry IDs represent the same intake. Persist the approved link, remote baseline and upload intent atomically; resume an interrupted transfer without creating new IDs. A fresh web-to-native move can use a server pull; offline browser edits must reach the server or be exported from the web app and previewed on the phone.
+
+Bindings are scoped to **server origin + immutable account ID**, never username. Pausing or signing out preserves the local journal and unsent work. Switching servers/accounts opens a separate profile and cannot drain the first profile's queue. Settings are special: existing `/api/settings` is unversioned and separate from `/api/sync`. Preview timezone/day-start differences when linking, adopt the server's settings by default, and do not silently upload stale offline preferences on reconnect.
+
+**Exit:** Run clean-phone, clean-server, both-populated and interrupted-link cases. Use two servers with the same username, conflicting day notes, a canceled first link and a credential that expires mid-sync. No upload before confirmation; no cross-profile records or credentials.
+
+## 5. Make two-way sync recoverable
+
+Use one sync worker per bound journal. Each local edit commits its visible record and queue entry together. Only send the head operation for a record, and only if it is unblocked. Finalize and persist its exact wire bytes (including base version and stable operation ID) before the first send. Retry those same bytes after a lost response or restore. Keep later edits separate until the previous acknowledgement establishes their base version. A new entry waits for its parent item to be accepted. Cap encoded requests at 3 MiB and 500 operations, below the server's 4 MiB hard limit; drain 500-change pages while `has_more` is true.
+
+Apply results, changes and the cursor in one transaction. Keep local changes made during a request. A conflict shows the local and server values; choosing local sends a **new** operation against the reviewed version. Invalid operations remain visible and recoverable.
+
+**Deletion has two paths.** An ordinary delete is undoable. Do not send a deletion for a local record that was provably never sent and is absent remotely; if a creation might have reached the server, reconcile its receipt first. A permanent item purge on a bound journal instead erases the local content and dependent edits and saves an ID-only purge intent in the same transaction. After identity verification, drain those intents with `DELETE /api/items/{id}` before normal pushes. Retry the delete until acknowledged, even if the server has never seen the ID: its terminal tombstone blocks late creates. The incoming tombstone also removes unsent child entries and suppresses stale responses. A never-linked journal simply erases the item locally.
+
+**Server rollback:** On `409 cursor_reset`, stop sending, pull from zero into staging, fold the change history again and compare it with the preserved local copy, including uncertain writes. A missing remote row is not authority either to erase local data or to recreate a deleted row. Keep unresolved rows for review. The current server detects a cursor ahead of its latest change; it cannot reliably identify a restored history that has already grown past that cursor. Document an explicit full reconciliation after an operator restore for that case.
+
+Sync on foreground entry, local edits, reconnect and **Sync now**. Retry transient failures with backoff; respect `Retry-After`. No correctness or delivery promise depends on iOS granting background execution. Mark sync complete only when every pull page and eligible write is complete; expose blocked work separately. Local logging stays available throughout.
+
+**Exit:** Run Swift against a disposable instance of the real Python backend in CI. Exercise a lost response after server commit with an exact decimal, concurrent web/phone edits, multiple versions of one record across page boundaries, mutation during pull, different day UUIDs for one date and server rollback. Race an offline item purge with a creation whose response was lost and a stale device's child entry; neither may reappear. Verify identical final journals, or a visible conflict that retains the local edit.
+
+## 6. Document self-hosting and release evidence
+
+The shipped app requires **HTTPS with a valid hostname and a certificate chain trusted by the phone**. Apple's [App Transport Security](https://developer.apple.com/documentation/security/preventing-insecure-network-connections) is the default for `URLSession`; the app does not need an exception. A private CA explicitly trusted by the device can work. A public IP address or a public-facing server is not required.
+
+- **[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve):** recommended for a personal install. With tailnet HTTPS enabled, `tailscale serve --bg http://127.0.0.1:8000` fronts the default Compose port with a managed certificate. Use the full HTTPS name Serve prints, with the phone on the tailnet. Serve stays private; Funnel is unnecessary.
+- **[Nginx Proxy Manager](https://nginxproxymanager.com/):** a Proxy Host for the chosen DNS name, a Let's Encrypt certificate with renewal, and Force SSL. Forward to the app on a private network reachable by the proxy; `localhost` inside a separate proxy container is not the app. DNS validation can keep the service private.
+- **[cert-manager](https://cert-manager.io/docs/usage/ingress/):** for an existing Kubernetes deployment, route the host through its Ingress controller and use an ACME issuer and matching TLS host/secret. cert-manager issues and renews the certificate; the controller serves it.
+
+For all three recipes set `PUBLIC_ORIGIN` to the exact external HTTPS origin, keep personal infrastructure outside the application repository, and preserve the deployment's existing signup policy. Verify from an iPhone: trusted endpoint connects, expired/wrong-host certificates fail without losing pending edits, and a temporarily unreachable server does not block logging. For LAN hosts, set [`NSLocalNetworkUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocalnetworkusagedescription) to explain that Intake connects to the user's server. Trigger that permission only when connecting; a denial must leave the journal usable. Release evidence combines the interop suite, accessible native screens and the actual backup/restore result, not a simulator-only launch.
+
+Storage reference: [Apple: Optimizing your app's data for iCloud Backup](https://developer.apple.com/documentation/foundation/optimizing-your-app-s-data-for-icloud-backup).
