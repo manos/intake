@@ -19,6 +19,7 @@ struct HistoryView: View {
   @State private var custom = false
   @State private var selected: Record?
   @State private var selectedDay: ChosenDay?
+  @State private var chartDay: String?
   struct ChosenDay: Identifiable { var id: String }
   var calendar: Calendar {
     var c = Calendar(identifier: .gregorian)
@@ -52,8 +53,8 @@ struct HistoryView: View {
     return values
   }
   struct Point: Identifiable {
-    let day: String, series: String, value: Double
-    var id: String { day + series }
+    let day: String, series: String, value: Double, itemID: String
+    var id: String { day + itemID + series }
   }
   func byDay() -> [String: [Record]] {
     var groups: [String: [Record]] = [:]
@@ -77,7 +78,8 @@ struct HistoryView: View {
           $0 + (amountChart ? Double($1.text("quantity")) ?? 0 : 1)
         }
         return Point(
-          day: day, series: e.text("item_name") + " (" + e.text("unit") + ")", value: value)
+          day: day, series: e.text("item_name") + " (" + e.text("unit") + ")", value: value,
+          itemID: e.text("item_id"))
       }
     }
   }
@@ -96,6 +98,7 @@ struct HistoryView: View {
           Toggle("Custom dates", isOn: $custom)
           if custom {
             DatePicker("From", selection: $from, displayedComponents: .date)
+              .onChange(of: from) { _, d in if to < d { to = d } }
             DatePicker("To", selection: $to, in: from..., displayedComponents: .date)
           } else {
             HStack {
@@ -125,6 +128,13 @@ struct HistoryView: View {
               .position(by: .value("Item and unit", p.series)).foregroundStyle(
                 by: .value("Item and unit", p.series))
             }.frame(height: 160)
+              .chartXSelection(value: $chartDay)
+              .onChange(of: chartDay) { _, d in
+                if let d {
+                  selectedDay = ChosenDay(id: d)
+                  chartDay = nil
+                }
+              }
           }
         }
         if mode == .calendar {
@@ -190,6 +200,9 @@ struct HistoryView: View {
                 }
               }
               if mode != .item {
+                if mode == .timeline && !rows.isEmpty {
+                  ClockTimeline(entries: rows, settings: m.state.settings) { selected = $0 }
+                }
                 ForEach(rows) { r in
                   Button {
                     selected = r
@@ -230,5 +243,32 @@ struct HistoryView: View {
     guard times.count > 1 else { return nil }
     let gaps = zip(times.dropFirst(), times).map { $0.timeIntervalSince($1) }.sorted()
     return (gaps[gaps.count / 2] + gaps[(gaps.count - 1) / 2]) / 2
+  }
+}
+
+/// One lane per event keeps repeated fall-back times and simultaneous logs selectable.
+private struct ClockTimeline: View {
+  let entries: [Record], settings: Settings, select: (Record) -> Void
+  var body: some View {
+    VStack(alignment: .leading) {
+      Text("24 hours from \(settings.day_start):00").font(.caption)
+      ForEach(entries.reversed()) { row in
+        if let instant = JournalTime.instant(row.text("occurred_at")) {
+          let zone = TimeZone(identifier: settings.timezone) ?? .gmt
+          let parts = Calendar(identifier: .gregorian).dateComponents(in: zone, from: instant)
+          let minute = ((parts.hour ?? 0) - settings.day_start + 24) % 24 * 60 + (parts.minute ?? 0)
+          GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+              Capsule().fill(.quaternary).frame(height: 2)
+              Circle().fill(itemColor(row)).frame(width: 12, height: 12)
+                .offset(x: (geometry.size.width - 12) * Double(minute) / 1440)
+            }.frame(maxHeight: .infinity).contentShape(Rectangle()).onTapGesture { select(row) }
+          }.frame(height: 24).accessibilityElement().accessibilityLabel(
+            "\(row.text("item_name")), \(row.text("occurred_at"))"
+          )
+          .accessibilityAddTraits(.isButton).accessibilityAction { select(row) }
+        }
+      }
+    }
   }
 }

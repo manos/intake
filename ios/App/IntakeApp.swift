@@ -202,6 +202,23 @@ struct EntryEditor: View {
   @Environment(\.dismiss) var dismiss
   @State var row: Record
   @State private var changedTime = false
+  @State private var chosenTime = Date()
+  var zone: TimeZone { TimeZone(identifier: row.text("timezone")) ?? .current }
+  var choices: [Date] {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = zone
+    let start = cal.startOfDay(for: chosenTime).addingTimeInterval(-1)
+    let parts = cal.dateComponents([.hour, .minute, .second], from: chosenTime)
+    let repeats: [Calendar.RepeatedTimePolicy] = [.first, .last]
+    return Array(
+      Set(
+        repeats.compactMap {
+          cal.nextDate(
+            after: start, matching: parts, matchingPolicy: .strict, repeatedTimePolicy: $0,
+            direction: .forward)
+        })
+    ).sorted()
+  }
   var body: some View {
     NavigationStack {
       Form {
@@ -211,9 +228,20 @@ struct EntryEditor: View {
         TextField("Note", text: field("note"), axis: .vertical)
         Toggle("Change exact time", isOn: $changedTime)
         if changedTime {
-          TextField("Timestamp with UTC offset", text: field("occurred_at"))
-            .textInputAutocapitalization(.never).autocorrectionDisabled()
-          Text("Include the offset, for example 2026-11-01T01:30:00-05:00.").font(.caption)
+          DatePicker("Date and time", selection: $chosenTime).environment(\.timeZone, zone)
+          Text(zone.identifier).font(.caption)
+          if choices.count > 1 {
+            Picker("Repeated hour", selection: $chosenTime) {
+              ForEach(choices, id: \.self) { d in
+                let offset = zone.secondsFromGMT(for: d)
+                Text(
+                  String(
+                    format: "UTC%@%02d:%02d", offset < 0 ? "−" : "+", abs(offset) / 3600,
+                    abs(offset) % 3600 / 60)
+                ).tag(d)
+              }
+            }
+          }
         } else {
           Text(row.text("occurred_at")).font(.caption)
         }
@@ -223,10 +251,17 @@ struct EntryEditor: View {
             dismiss()
           }
         }
-      }.navigationTitle("Entry").toolbar {
-        Button("Save") { if m.change({ try $0.put(row) }) { dismiss() } }
-        Button("Cancel") { dismiss() }
-      }
+      }.navigationTitle("Entry")
+        .onAppear { chosenTime = JournalTime.instant(row.text("occurred_at")) ?? .now }
+        .toolbar {
+          Button("Save") {
+            if changedTime, chosenTime != JournalTime.instant(row.text("occurred_at")) {
+              row.data["occurred_at"] = .string(JournalTime.stamp(chosenTime))
+            }
+            if m.change({ try $0.put(row) }) { dismiss() }
+          }
+          Button("Cancel") { dismiss() }
+        }
     }
   }
   func field(_ k: String) -> SwiftUI.Binding<String> {
@@ -262,6 +297,23 @@ struct ItemEditor: View {
         HStack {
           Circle().fill(itemColor(row)).frame(width: 20, height: 20)
           TextField("Color (#RRGGBB)", text: field("color")).textInputAutocapitalization(.never)
+          ColorPicker(
+            "Choose color",
+            selection: .init(
+              get: { itemColor(row) },
+              set: { color in
+                var r: CGFloat = 0
+                var g: CGFloat = 0
+                var b: CGFloat = 0
+                var a: CGFloat = 0
+                if UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) {
+                  row.data["color"] = .string(
+                    String(
+                      format: "#%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()),
+                      Int((b * 255).rounded())))
+                }
+              }), supportsOpacity: false
+          ).labelsHidden()
         }
         Toggle(
           "Archived",
