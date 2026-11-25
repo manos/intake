@@ -13,7 +13,31 @@ struct JournalFile: FileDocument {
     FileWrapper(regularFileWithContents: bytes)
   }
 }
+enum AppAccent: String, CaseIterable {
+  case purple = "Purple"
+  case blue = "Blue"
+  case teal = "Teal"
+  case green = "Green"
+  case orange = "Orange"
+  case
+    pink = "Pink"
+  case graphite = "Graphite"
+
+  var color: Color {
+    switch self {
+    case .purple: .purple
+    case .blue: .blue
+    case .teal: .teal
+    case .green: .green
+    case .orange: .orange
+    case .pink: .pink
+    case .graphite: .primary
+    }
+  }
+}
+
 struct SettingsView: View {
+  @SwiftUI.Binding var accent: AppAccent
   @EnvironmentObject var m: JournalModel
   @State var address = ""
   @State var name = ""
@@ -35,6 +59,17 @@ struct SettingsView: View {
   var body: some View {
     NavigationStack {
       Form {
+        Section("Appearance") {
+          Picker("Accent color", selection: $accent) {
+            ForEach(AppAccent.allCases, id: \.self) { choice in
+              Label {
+                Text(choice.rawValue)
+              } icon: {
+                Image(systemName: "circle.fill").foregroundStyle(choice.color)
+              }.tag(choice)
+            }
+          }
+        }
         Section("Sync") {
           if let b = m.state.binding {
             Text(b.username + " · " + b.origin).textSelection(.enabled)

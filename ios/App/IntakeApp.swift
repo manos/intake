@@ -3,19 +3,17 @@ import SwiftUI
 
 @main struct IntakeApp: App {
   @StateObject private var model = JournalModel()
+  @AppStorage("appearance.accent") private var accent: AppAccent = .purple
   @Environment(\.scenePhase) private var phase
   var body: some Scene {
     WindowGroup {
       Group {
         if model.ready {
-          VStack(spacing: 0) {
-            TotalsBanner()
-            TabView {
-              TodayView().tabItem { Label("Today", systemImage: "clock") }
-              HistoryView().tabItem { Label("History", systemImage: "calendar") }
-              SettingsView().tabItem { Label("Settings", systemImage: "gearshape") }
-            }.id(model.scope)
-          }
+          TabView {
+            TodayView().tabItem { Label("Today", systemImage: "clock") }
+            HistoryView().tabItem { Label("History", systemImage: "calendar") }
+            SettingsView(accent: $accent).tabItem { Label("Settings", systemImage: "gearshape") }
+          }.id(model.scope)
         } else {
           ContentUnavailableView {
             Label("Journal unavailable", systemImage: "lock")
@@ -26,7 +24,7 @@ import SwiftUI
           }
         }
       }
-      .environmentObject(model).tint(.purple)
+      .environmentObject(model).tint(accent.color)
       .alert(
         "Intake",
         isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })
@@ -36,6 +34,13 @@ import SwiftUI
         Text(model.message ?? "")
       }
       .onChange(of: phase, initial: true) { _, p in model.lifecycle(p == .active) }
+      .task(id: phase == .active && model.signedIn ? model.state.binding?.key : nil) {
+        guard phase == .active, model.signedIn, model.state.binding != nil else { return }
+        while !Task.isCancelled {
+          do { try await Task.sleep(for: .seconds(60)) } catch { return }
+          model.refreshIdleConnection()
+        }
+      }
     }
   }
 }
@@ -53,45 +58,10 @@ func totals(_ entries: [Record]) -> String {
       "\(group[0].text("item_name")): \(NSDecimalNumber(decimal:n).stringValue) \(group[0].text("unit"))"
   }.sorted().joined(separator: " · ")
 }
-struct TotalsBanner: View {
+private struct SyncStatusRow: View {
   @EnvironmentObject var m: JournalModel
-  @Environment(\.scenePhase) private var phase
-  var body: some View {
-    TimelineView(.periodic(from: .now, by: 60)) { tick in
-      let day = JournalTime.day(tick.date, settings: m.state.settings)
-      let rows = m.state.visible(.entry).filter {
-        JournalTime.instant($0.text("occurred_at")).map {
-          JournalTime.day($0, settings: m.state.settings) == day
-        } == true
-      }
-      VStack(alignment: .leading, spacing: 4) {
-        HStack(alignment: .firstTextBaseline) {
-          Text(rows.isEmpty ? "Today: no entries" : "Today · \(totals(rows))").font(
-            .subheadline.bold())
-          Spacer(minLength: 4)
-          if let badge = m.connectionBadge { ConnectionBadge(status: badge) }
-        }
-        if m.state.binding != nil
-          && (m.busy || m.state.incomplete || !m.signedIn
-            || !["", "Synced"].contains(m.syncStatus))
-        {
-          Text(
-            "\(m.syncStatus.isEmpty ? "Pending" : m.syncStatus) · \(m.state.pending.count + m.state.purges.count) pending"
-          ).font(.caption)
-        }
-      }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(.vertical, 6)
-        .background(.thinMaterial)
-    }.task(id: phase == .active && m.signedIn ? m.state.binding?.key : nil) {
-      guard phase == .active, m.signedIn, m.state.binding != nil else { return }
-      while !Task.isCancelled {
-        do { try await Task.sleep(for: .seconds(60)) } catch { return }
-        m.refreshIdleConnection()
-      }
-    }
-  }
-}
-private struct ConnectionBadge: View {
   let status: ServerPresence.Badge
+  let showSuccess: Bool
   var appearance: (text: String, icon: String, color: Color) {
     switch status {
     case .connected: return ("Connected", "cloud.fill", .green)
@@ -102,12 +72,26 @@ private struct ConnectionBadge: View {
     }
   }
   var body: some View {
-    Label(appearance.text, systemImage: appearance.icon)
-      .font(.caption.weight(.semibold)).foregroundStyle(.primary, appearance.color)
+    let success = showSuccess && status == .connected
+    let pending = m.state.pending.count + m.state.purges.count
+    VStack(alignment: .leading, spacing: 4) {
+      Label {
+        Text(success ? "Success!" : appearance.text)
+      } icon: {
+        Image(systemName: success ? "checkmark.circle.fill" : appearance.icon)
+          .foregroundStyle(appearance.color)
+      }
       .labelStyle(.titleAndIcon)
-      .padding(.horizontal, 8).padding(.vertical, 3)
-      .background(appearance.color.opacity(0.14), in: Capsule())
-      .accessibilityLabel("Server: \(appearance.text)")
+      .accessibilityLabel(success ? "Sync successful" : "Server: \(appearance.text)")
+      if pending > 0 { Text("\(pending) pending") }
+      if m.state.incomplete || status == .syncFailed || m.syncStatus == "Syncing…",
+        !m.syncStatus.isEmpty, m.syncStatus != "Synced"
+      {
+        Text(m.syncStatus)
+      }
+    }
+    .font(.subheadline).foregroundStyle(.secondary)
+    .listRowBackground(Color.clear).listRowSeparator(.hidden)
   }
 }
 struct EntryLine: View {
@@ -132,83 +116,88 @@ struct TodayView: View {
   @State private var successID: UUID?
   var body: some View {
     NavigationStack {
-      List {
-        Section("Items") {
-          ForEach(m.state.visible(.item).filter { $0.data["archived"] != .bool(true) }) { row in
-            HStack {
-              Button {
-                m.edit(row.entry(settings: m.state.settings))
-              } label: {
-                HStack {
-                  Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
-                  VStack(alignment: .leading) {
-                    Text(row.text("name"))
-                    Text("\(row.text("amount")) \(row.text("unit"))").font(.caption)
-                    if let last = m.state.visible(.entry).first(where: {
-                      $0.text("item_id") == row.id
-                    }),
-                      let d = JournalTime.instant(last.text("occurred_at"))
-                    {
-                      Text(d, style: .relative).font(.caption2)
+      TimelineView(.periodic(from: .now, by: 60)) { tick in
+        List {
+          if let status = m.connectionBadge {
+            SyncStatusRow(status: status, showSuccess: successID != nil)
+          }
+          Section("Items") {
+            ForEach(m.state.visible(.item).filter { $0.data["archived"] != .bool(true) }) { row in
+              HStack {
+                Button {
+                  m.edit(row.entry(settings: m.state.settings))
+                } label: {
+                  HStack {
+                    Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
+                    VStack(alignment: .leading) {
+                      Text(row.text("name"))
+                      Text("\(row.text("amount")) \(row.text("unit"))").font(.caption)
+                      if let last = m.state.visible(.entry).first(where: {
+                        $0.text("item_id") == row.id
+                      }),
+                        let d = JournalTime.instant(last.text("occurred_at"))
+                      {
+                        Text(d, style: .relative).font(.caption2)
+                      }
                     }
                   }
-                }
-              }.buttonStyle(.borderless).layoutPriority(1).accessibilityLabel(
-                "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
-              let presets = row.data["presets"]?.values.map(\.text) ?? []
-              InlinePresets(amounts: presets, item: row) { amount in
-                m.edit(row.entry(settings: m.state.settings, amount: amount))
-              }.frame(maxWidth: .infinity, alignment: .trailing)
-              Menu {
-                Button("Log with details") { edit = row.entry(settings: m.state.settings) }
-                ForEach(presets.indices, id: \.self) { index in
-                  let amount = presets[index]
-                  Button("Log \(amount) \(row.text("unit"))") {
-                    m.edit(row.entry(settings: m.state.settings, amount: amount))
+                }.buttonStyle(.borderless).layoutPriority(1).accessibilityLabel(
+                  "Log \(row.text("name")), \(row.text("amount")) \(row.text("unit"))")
+                let presets = row.data["presets"]?.values.map(\.text) ?? []
+                InlinePresets(amounts: presets, item: row) { amount in
+                  m.edit(row.entry(settings: m.state.settings, amount: amount))
+                }.frame(maxWidth: .infinity, alignment: .trailing)
+                Menu {
+                  Button("Log with details") { edit = row.entry(settings: m.state.settings) }
+                  ForEach(presets.indices, id: \.self) { index in
+                    let amount = presets[index]
+                    Button("Log \(amount) \(row.text("unit"))") {
+                      m.edit(row.entry(settings: m.state.settings, amount: amount))
+                    }
                   }
-                }
-                Button("Edit item") { details = row }
-              } label: {
-                Image(systemName: "ellipsis.circle")
-              }.fixedSize().layoutPriority(1).accessibilityLabel("Options for \(row.text("name"))")
+                  Button("Edit item") { details = row }
+                } label: {
+                  Image(systemName: "ellipsis.circle")
+                }.fixedSize().layoutPriority(1).accessibilityLabel(
+                  "Options for \(row.text("name"))")
+              }
             }
+            Button("Add item", systemImage: "plus") { adding = true }
           }
-          Button("Add item", systemImage: "plus") { adding = true }
-        }
-        Section("Today’s journal") {
-          let day = JournalTime.day(.now, settings: m.state.settings)
-          let dayRow = m.state.visible(.day).first { $0.text("date") == day }
-          if let dayRow {
-            Text(dayRow.text("note"))
-            if dayRow.data["zero"] == .bool(true)
-              && !m.state.visible(.entry).contains(where: { entry in
-                JournalTime.instant(entry.text("occurred_at")).map {
-                  JournalTime.day($0, settings: m.state.settings) == day
-                } == true
-              })
-            {
-              Text("Confirmed zero").font(.caption)
-            }
-          }
-          Button("Edit day note or zero day") { dayEditor = true }
-          ForEach(
-            m.state.visible(.entry).filter {
-              JournalTime.instant($0.text("occurred_at")).map {
+          Section("Today’s journal") {
+            let day = JournalTime.day(tick.date, settings: m.state.settings)
+            let entries = m.state.visible(.entry).filter { row in
+              JournalTime.instant(row.text("occurred_at")).map {
                 JournalTime.day($0, settings: m.state.settings) == day
               } == true
             }
-          ) { r in
-            Button {
-              edit = r
-            } label: {
-              EntryLine(row: r)
+            let dayRow = m.state.visible(.day).first { $0.text("date") == day }
+            if let dayRow {
+              Text(dayRow.text("note"))
+              if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
+                Text("Confirmed zero").font(.caption)
+              }
+            }
+            Button("Edit day note or zero day") { dayEditor = true }
+            ForEach(entries) { r in
+              Button {
+                edit = r
+              } label: {
+                EntryLine(row: r)
+              }
+            }
+            if !entries.isEmpty {
+              VStack(alignment: .leading, spacing: 3) {
+                Text("Daily totals").font(.caption.weight(.semibold))
+                Text(totals(entries)).font(.subheadline)
+              }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
             }
           }
-        }
-        if let undo = m.undo {
-          Button("Undo deleted entry") {
-            m.edit(undo)
-            m.undo = nil
+          if let undo = m.undo {
+            Button("Undo deleted entry") {
+              m.edit(undo)
+              m.undo = nil
+            }
           }
         }
       }
@@ -223,15 +212,6 @@ struct TodayView: View {
           }
         }
       )
-      .overlay(alignment: .top) {
-        if successID != nil, m.connectionBadge == .connected {
-          Label("Success!", systemImage: "checkmark.circle.fill")
-            .font(.subheadline.bold()).foregroundStyle(.primary, .green)
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(.regularMaterial, in: Capsule()).padding(.top, 8)
-            .allowsHitTesting(false)
-        }
-      }
       .task(id: successID) {
         guard successID != nil else { return }
         do { try await Task.sleep(for: .seconds(2)) } catch { return }

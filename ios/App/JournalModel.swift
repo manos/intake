@@ -299,7 +299,7 @@ import SwiftUI
     syncTask = task
     return task
   }
-  /// Refresh only while the banner is visible and the last sync succeeded.
+  /// Refresh the idle connection while the app is active.
   /// Failed connections already use the sync worker's retry schedule.
   func refreshIdleConnection() {
     if active, !busy, connectionBadge == .connected || connectionBadge == .syncFailed,

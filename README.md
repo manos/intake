@@ -1,6 +1,6 @@
 # Intake
 
-A quiet, private journal for medicines and anything else you choose to track. One tap records an exact time. Today's totals stay visible, even while browsing history. Works offline after the first visit and syncs with your own server when it becomes reachable.
+A quiet, private journal for medicines and anything else you choose to track. One tap records an exact time. Review entries and daily totals, even offline, and optionally sync with your own server.
 
 Intake starts empty. Add your own names, colors, quantities and units. No accounts, medicines, goals or categories are preconfigured.
 
@@ -9,6 +9,8 @@ Intake starts empty. Add your own names, colors, quantities and units. No accoun
 Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or later. For a device install, use your development signing team. The app opens to an empty local journal without a server account. Its SQLite journal lives in Application Support and is eligible for ordinary iCloud **device backup** when enabled for Intake. This is full-device recovery, not live iCloud sync. Device-only server credentials do not migrate.
 
 On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
+
+Daily totals appear beneath today's entries. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
 
 **Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
 
