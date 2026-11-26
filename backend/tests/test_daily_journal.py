@@ -7,6 +7,26 @@ from pydantic import ValidationError
 from backend.models import Day
 
 
+def test_empty_discovery_posts_do_not_start_sessions_or_consume_signup_attempts(
+    tmp_path,
+):
+    from sqlalchemy import select
+
+    from backend.app import create_app
+    from backend.db import connect
+    from backend.tables import Throttle
+
+    client = TestClient(create_app(tmp_path), headers={"X-Intake-Discover": "1"})
+    for endpoint in ("/api/signup", "/api/session"):
+        response = client.post(endpoint)
+        assert response.status_code == 204
+        assert "set-cookie" not in response.headers
+    assert client.get("/api/registration").json()["first_run"] is True
+    assert client.get("/api/me").status_code == 401
+    with connect(client.app.state.db) as db:
+        assert db.scalar(select(Throttle)) is None
+
+
 def test_formatting_survives_sync_and_plain_client_zero_edit(tmp_path):
     from backend.app import create_app
     from backend.db import create_user

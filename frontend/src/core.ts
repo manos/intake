@@ -480,6 +480,15 @@ export async function dayId(date: string) {
   const h = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
+export function editableDay(records: Row[], date: string, id?: string) {
+  return records.find(
+    (r) =>
+      r.entity === "day" &&
+      !r.deleted &&
+      r.data.date === date &&
+      (id === undefined || r.id === id),
+  );
+}
 export function signupError(
   username: string,
   password: string,

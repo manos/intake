@@ -38,7 +38,7 @@ struct ServerRoute {
 
   static let redirects = [301, 302, 303, 307, 308]
   static func resolve(
-    _ start: URL, previous: ServerRoute? = nil,
+    _ start: URL, previous: ServerRoute? = nil, apiPath: String? = nil,
     probe: (URL) async throws -> (Int, String?)
   ) async throws -> ServerRoute {
     var current = start
@@ -63,7 +63,11 @@ struct ServerRoute {
       }
       if status != 301 && status != 308 { temporary = true }
       if !temporary { saved = nextOrigin }
-      current = next
+      if let apiPath, nextOrigin != (try origin(current)), next.path.isEmpty || next.path == "/" {
+        current = nextOrigin.appendingPathComponent(apiPath)
+      } else {
+        current = next
+      }
     }
     throw Problem.message("The server returned too many redirects.")
   }

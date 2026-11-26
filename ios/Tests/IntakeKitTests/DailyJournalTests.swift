@@ -3,6 +3,28 @@ import XCTest
 @testable import IntakeKit
 
 final class DailyJournalTests: XCTestCase {
+  func testTemporaryAliasCannotInvalidateOrReceivePinnedSession() async throws {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [AliasResponses.self]
+    for alias in ["http://denied.test", "http://auth-only.test"] {
+      let binding = Binding(
+        origin: "https://original.test", account: "same-account", username: "sample",
+        discoveryOrigin: alias)
+      do {
+        _ = try await Server.resume(binding, configuration: config)
+        XCTFail("Cannot use the session on an unverified route")
+      } catch ServerError.routeUnavailable {}
+    }
+  }
+  func testOnlyAuthenticationPathRedirectsBeforePasswordIsSent() async throws {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [AliasResponses.self]
+    let server = try await Server.discover("auth-only.test", configuration: config)
+    XCTAssertEqual(server.savedOrigin.absoluteString, "https://final.test")
+    let (user, _) = try await server.authenticate(
+      username: "sample", password: UUID().uuidString, signup: false, timezone: "UTC")
+    XCTAssertEqual(user.id, "same-account")
+  }
   func testLoginUsesFinalOriginAndExistingAccountJournal() async throws {
     let config = URLSessionConfiguration.ephemeral
     config.protocolClasses = [AliasResponses.self]
@@ -103,20 +125,37 @@ private final class AliasResponses: URLProtocol, @unchecked Sendable {
     let account =
       #"{"id":"same-account","username":"sample","settings":{"timezone":"UTC","day_start":0}}"#
     if url.host == "garden.test" {
-      XCTAssertEqual(request.httpMethod, "HEAD")
+      XCTAssertEqual(request.httpMethod, "GET")
       XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
       XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
       XCTAssertNil(request.httpBody)
       status = 301
       headers["Location"] = "https://final.test/"
+    } else if url.host == "auth-only.test" {
+      XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+      XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+      if url.path == "/api/session", request.httpMethod == "POST" {
+        XCTAssertNil(request.httpBody)
+        status = 308
+        headers["Location"] = "https://final.test/"
+      } else {
+        json = #"{"allowed":true}"#
+      }
+    } else if url.host == "denied.test" {
+      XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+      status = 401
     } else if url.host == "final.test" {
       switch (request.httpMethod, url.path) {
-      case ("HEAD", _): break
+      case ("GET", "/"), ("GET", ""): break
       case ("GET", "/api/registration"): json = #"{"allowed":true}"#
       case ("POST", "/api/session"):
-        XCTAssertNotNil(request.value(forHTTPHeaderField: "Authorization"))
-        json = account
-        headers["Set-Cookie"] = "intake_session=fixture; Path=/api; HttpOnly; Secure"
+        if request.value(forHTTPHeaderField: "X-Intake-Discover") == "1" {
+          status = 204
+        } else {
+          XCTAssertNotNil(request.value(forHTTPHeaderField: "Authorization"))
+          json = account
+          headers["Set-Cookie"] = "intake_session=fixture; Path=/api; HttpOnly; Secure"
+        }
       case ("GET", "/api/me"):
         XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "intake_session=fixture")
         json = account

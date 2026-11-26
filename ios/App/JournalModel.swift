@@ -121,7 +121,7 @@ import SwiftUI
   }
   func authenticate(_ address: String, _ name: String, _ password: String, signup: Bool) {
     foregroundWork {
-      let server = try await Server.discover(address)
+      let server = try await Server.discover(address, purpose: signup ? .signup : .login)
       let (profile, token) = try await server.authenticate(
         username: name, password: password, signup: signup, timezone: self.state.settings.timezone)
       let c = Candidate(server: server, profile: profile, token: token, signup: signup)
@@ -360,7 +360,7 @@ import SwiftUI
       try DeviceSession.set(b.key, nil)
       self.signedIn = false
       self.syncStatus = "Signed out"
-      if let token { try? await Server.resume(b).logout(token: token, account: b.account) }
+      if let token { try? await Server(b.origin).logout(token: token, account: b.account) }
     }
   }
   func deleteAccount(keepLocal: Bool) {

@@ -141,7 +141,19 @@ def create_app(config_dir=None):
                 return JSONResponse({"detail": "Request too large"}, status_code=413)
             body.extend(chunk)
         request._body = bytes(body)
-        response = await call_next(request)
+        # Let a client discover POST-specific proxy redirects without creating
+        # a session or using a signup attempt. This probe performs no action.
+        if (
+            request.method == "POST"
+            and request.url.path in {"/api/session", "/api/signup"}
+            and request.headers.get("x-intake-discover") == "1"
+            and not body
+            and not request.headers.get("authorization")
+            and not request.cookies
+        ):
+            response = Response(status_code=204)
+        else:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (

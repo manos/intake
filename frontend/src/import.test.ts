@@ -1,5 +1,6 @@
 import { it, expect } from "vitest";
 import { previewImport } from "./import";
+import { editableDay, type Row } from "./core";
 const id = "c7149fd8-c42d-45b1-91ce-c78686d221e1";
 it("imports native journal formatting without splitting Unicode characters", () => {
   const day = {
@@ -18,6 +19,32 @@ it("imports native journal formatting without splitting Unicode characters", () 
   expect(preview().rows[0].data.styles).toEqual([[3, 7, 3]]);
   day.styles = [[1, 1, 1]];
   expect(preview().errors).toHaveLength(1);
+});
+it("keeps the opened live day ID when deleted duplicates precede it", () => {
+  const row: Row = {
+    id,
+    version: 1,
+    entity: "day",
+    deleted: false,
+    data: { date: "2026-11-26", note: "live", zero: false },
+  };
+  const rows = [{ ...row, id: "discarded", deleted: true }, row];
+  expect(editableDay(rows, row.data.date)?.id).toBe(id);
+  expect(editableDay(rows, row.data.date, id)?.id).toBe(id);
+  expect(editableDay(rows, row.data.date, "discarded")).toBeUndefined();
+});
+it("accepts a valid native day note longer than 10,000 UTF-16 units", () => {
+  const note = "🌿".repeat(5001);
+  const data = {
+    items: [],
+    entries: [],
+    days: [
+      { id, date: "2026-11-26", note, zero: false, styles: [[0, 10002, 2]] },
+    ],
+  };
+  expect(previewImport(JSON.stringify(data), "journal.json").errors).toEqual(
+    [],
+  );
 });
 it("round trips decimal strings in backups", () => {
   const p = previewImport(

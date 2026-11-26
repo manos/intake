@@ -8,6 +8,7 @@
     cacheProfile,
     dayKey,
     dayId,
+    editableDay,
     snapshot,
     synchronize,
     signupError,
@@ -53,6 +54,12 @@
   let timezone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone),
     boundary = $state(0),
     dailyNote = $state(""),
+    dayDraft = $state<{
+      date: string;
+      account: string;
+      id?: string;
+      version?: number;
+    }>(),
     zero = $state(false),
     importPreview: Preview | undefined = $state();
   const items = $derived(
@@ -551,9 +558,14 @@
     );
   }
   function openDay() {
-    const row = store.records.find(
-      (r) => r.entity === "day" && !r.deleted && r.data.date === activeDate,
-    );
+    if (!journal) return;
+    const row = editableDay(store.records, activeDate);
+    dayDraft = {
+      date: activeDate,
+      account: journal.account,
+      id: row?.id,
+      version: row?.version,
+    };
     dailyNote = row?.data.note ?? "";
     zero = row?.data.zero ?? false;
     modal = "day";
@@ -561,13 +573,24 @@
   async function saveDay(event: SubmitEvent) {
     event.preventDefault();
     const active = journal;
+    if (
+      !active ||
+      !dayDraft ||
+      dayDraft.account !== active.account ||
+      dayDraft.date !== activeDate
+    ) {
+      error = "Reopen the day note in the current journal.";
+      return;
+    }
     if (zero && dayEntries.length) {
       error = "This day has entries. Remove them before marking a zero day.";
       return;
     }
-    const row = store.records.find(
-      (r) => r.entity === "day" && r.data.date === activeDate,
-    );
+    const row = editableDay(store.records, dayDraft.date, dayDraft.id);
+    if (row?.id !== dayDraft.id || row?.version !== dayDraft.version) {
+      error = "The day note changed. Reopen it before saving.";
+      return;
+    }
     const data = {
       date: activeDate,
       note: dailyNote,

@@ -113,7 +113,8 @@ struct SettingsView: View {
             Button("Check signup availability") {
               Task {
                 do {
-                  supportsSignup = try await Server.discover(address).canRegister()
+                  supportsSignup = try await Server.discover(address, purpose: .availability)
+                    .canRegister()
                   if !supportsSignup { m.message = "Registration is unavailable on this server." }
                 } catch { m.message = error.localizedDescription }
               }

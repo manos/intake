@@ -125,7 +125,9 @@ function validate(entity: string, d: any, label: string) {
     +n > 0 &&
     +n <= 1e12;
   const string = (n: any, max: number, min = 0) =>
-    typeof n === "string" && n.length >= min && n.length <= max;
+    typeof n === "string" &&
+    n.length >= min &&
+    (n.length <= max || [...n].length <= max);
   const shape: Record<string, string[]> = {
     item: ["name", "color", "unit", "amount", "presets", "archived", "order"],
     entry: [

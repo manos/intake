@@ -8,7 +8,7 @@ private struct Registration: Decodable { let allowed: Bool }
 private struct Capabilities: Decodable { let account_deletion: Bool }
 public enum ServerError: LocalizedError {
   case response(Int, Int?)
-  case invalidCredentials, cursorReset, wrongAccount, invalid
+  case invalidCredentials, cursorReset, wrongAccount, routeUnavailable, invalid
   public var errorDescription: String? {
     switch self {
     case .invalidCredentials: return "Username or password wasn’t recognized."
@@ -16,6 +16,7 @@ public enum ServerError: LocalizedError {
     case .response(429, let delay): return "Too many requests. Retry in \(delay ?? 60) seconds."
     case .response(let n, _): return "The server could not complete the request (\(n))."
     case .wrongAccount: return "Sign in to the same server account."
+    case .routeUnavailable: return "The saved address no longer resolves to this account’s server."
     case .invalid: return "The server returned an invalid journal response."
     case .cursorReset: return "The server history was restored."
     }
@@ -49,31 +50,60 @@ public final class Server {
   }
   deinit { session.invalidateAndCancel() }
   /// Guest probes never carry the password, cookie, account ID, or an operation body.
-  public static func discover(_ address: String) async throws -> Server {
-    try await discover(address, configuration: .ephemeral)
+  public enum Purpose { case login, signup, availability }
+  public static func discover(_ address: String, purpose: Purpose = .login) async throws -> Server {
+    try await discover(address, purpose: purpose, configuration: .ephemeral)
   }
-  internal static func discover(_ address: String, configuration: URLSessionConfiguration)
+  internal static func discover(
+    _ address: String, purpose: Purpose = .login, configuration: URLSessionConfiguration
+  )
     async throws -> Server
   {
     let client = Server(origin: try ServerRoute.parse(address), configuration: configuration)
-    func probe(_ url: URL) async throws -> (Int, String?) {
+    func probe(_ url: URL, method: String) async throws -> (Int, String?) {
       var req = URLRequest(url: url)
-      req.httpMethod = "HEAD"
-      let (_, response) = try await client.session.data(for: req)
+      req.httpMethod = method
+      req.setValue("1", forHTTPHeaderField: "X-Intake-Discover")
+      let (bytes, response) = try await client.session.bytes(for: req)
+      defer { bytes.task.cancel() }  // Only the headers matter during discovery.
       guard let http = response as? HTTPURLResponse else { throw ServerError.invalid }
       return (http.statusCode, http.value(forHTTPHeaderField: "Location"))
     }
-    let root = try await ServerRoute.resolve(client.origin, probe: probe)
-    let route = try await ServerRoute.resolve(
-      root.endpoint.appendingPathComponent("api/registration"), previous: root, probe: probe)
+    let root = try await ServerRoute.resolve(client.origin) { try await probe($0, method: "GET") }
+    var route = try await ServerRoute.resolve(
+      root.endpoint.appendingPathComponent("api/registration"), previous: root,
+      apiPath: "api/registration"
+    ) { try await probe($0, method: "GET") }
+    if purpose != .availability {
+      // Some reverse proxies redirect only the authentication path. Probe
+      // using its real method with no password, session, or signup body.
+      let path = purpose == .signup ? "api/signup" : "api/session"
+      route = try await ServerRoute.resolve(
+        route.endpoint.appendingPathComponent(path), previous: route, apiPath: path
+      ) {
+        try await probe($0, method: "POST")
+      }
+    }
     let server = Server(origin: route.endpoint, saved: route.saved, configuration: configuration)
     _ = try JSONDecoder().decode(Registration.self, from: await server.call("registration").0)
     return server
   }
   public static func resume(_ binding: Binding) async throws -> Server {
-    guard let alias = binding.discoveryOrigin else { return try Server(binding.origin) }
-    let server = try await discover(alias)
-    guard server.origin.absoluteString == binding.origin else { throw ServerError.wrongAccount }
+    try await resume(binding, configuration: .ephemeral)
+  }
+  internal static func resume(_ binding: Binding, configuration: URLSessionConfiguration)
+    async throws -> Server
+  {
+    guard let alias = binding.discoveryOrigin else {
+      return try Server(origin: ServerRoute.parse(binding.origin), configuration: configuration)
+    }
+    let server: Server
+    do {
+      server = try await discover(alias, configuration: configuration)
+    } catch ServerError.response(401, _) {
+      throw ServerError.routeUnavailable
+    }
+    guard server.origin.absoluteString == binding.origin else { throw ServerError.routeUnavailable }
     return server
   }
   private func call(
