@@ -192,7 +192,7 @@ def create_app(config_dir=None):
             raise HTTPException(401, "Invalid credentials", headers=challenge(request))
         try:
             scheme, encoded = authorization.split(" ", 1)
-            if scheme.lower() == "basic" and len(encoded) <= 8192:
+            if scheme.lower() == "basic":
                 username, password = (
                     base64.b64decode(encoded, validate=True)
                     .decode("utf-8")
@@ -216,14 +216,8 @@ def create_app(config_dir=None):
                     },
                 )
             row = user_values(db.scalar(select(User).where(User.username == username)))
-            supplied = hash_password(
-                password[:1024], row["salt"] if row else b"\0" * 32
-            )
-            if (
-                not row
-                or len(password) > 1024
-                or not hmac.compare_digest(supplied, row["password"])
-            ):
+            supplied = hash_password(password, row["salt"] if row else b"\0" * 32)
+            if not row or not hmac.compare_digest(supplied, row["password"]):
                 failures = (bucket.failures if bucket else 0) + 1
                 until = (
                     time.time() + min(900, 2 ** min(failures - 5, 10))

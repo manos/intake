@@ -50,12 +50,13 @@ final class JournalTests: XCTestCase {
     XCTAssertEqual(presence.badge(server: "two", signedIn: true), .checking)
     presence.networkChanged(offline: true)
     XCTAssertEqual(presence.badge(server: "one", signedIn: true), .offline)
+    XCTAssertNil(presence.badge(server: "one", signedIn: false))
     presence.networkChanged(offline: false)
     presence.report(server: "one", generation: old, reachable: true)
     XCTAssertEqual(presence.badge(server: "one", signedIn: true), .checking)
     presence.report(server: "one", generation: presence.generation, reachable: false)
     XCTAssertEqual(presence.badge(server: "one", signedIn: true), .offline)
-    XCTAssertEqual(presence.badge(server: "one", signedIn: false), .signIn)
+    XCTAssertNil(presence.badge(server: "one", signedIn: false))
   }
   func testLoggingSyncedNumericAndStringPresetsKeepsExactTimeAndAmount() throws {
     let journal = try Journal()

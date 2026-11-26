@@ -345,18 +345,6 @@ import SwiftUI
       if !Task.isCancelled { self.trigger() }
     }
   }
-  func reconcile() {
-    guard let b = state.binding, let journal, state.maySync(at: .now), state.deletionChoice == nil
-    else { return }
-    foregroundWork {
-      guard let token = try DeviceSession.load(b.key) else { throw ServerError.response(401, nil) }
-      let server = try Server(b.origin)
-      let p = try await server.me(token, account: b.account)
-      let (rows, cursor) = try await server.snapshot(token: token, account: b.account)
-      try journal.link(b, remote: rows, cursor: cursor, settings: p.settings, recovering: true)
-      self.resync = true
-    }
-  }
   func signout() {
     guard let b = state.binding else { return }
     foregroundWork {

@@ -1254,8 +1254,6 @@
               autocomplete={modal === "signup"
                 ? "new-password"
                 : "current-password"}
-              minlength={modal === "signup" ? 12 : undefined}
-              maxlength="1024"
               bind:value={password}
             /></label
           >{#if modal === "signup"}<label
@@ -1263,14 +1261,9 @@
                 type="password"
                 required
                 autocomplete="new-password"
-                minlength="12"
-                maxlength="1024"
                 bind:value={confirmPassword}
               /></label
-            >
-            <p class="micro">
-              At least 12 characters. Choose a unique password.
-            </p>{/if}<button
+            >{/if}<button
             class="primary"
             type="submit"
             disabled={authSubmitting}

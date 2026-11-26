@@ -24,8 +24,6 @@ The native client requires an HTTPS origin with a hostname-matching, publicly ve
 
 Connected users can delete their own server account from Settings, including when registration is closed. Confirm the named server and account and choose whether to retain a local-only copy. A server must be online for deletion. Older releases still support sign-in and migration; upgrade the backend to use account deletion or native signup.
 
-After restoring a self-hosted database from backup, use **Settings → Sync → Compare entire server history**. This compares both journals even when the restored server's change counter has caught up. Conflicting quantities and notes stay available for review.
-
 ## Run locally
 
 Requires Docker with Compose.

@@ -268,7 +268,8 @@ it("bounds sync payload by encoded bytes for large unicode notes", async () => {
 });
 it("validates account creation before sending credentials", async () => {
   const { signupError } = await import("./core");
-  expect(signupError("me", "short", "short")).toMatch(/12/);
+  expect(signupError("me", "", "")).toMatch(/password/i);
+  expect(signupError("me", "x", "x")).toBe("");
   expect(signupError("me", "longpassword12", "different")).toMatch(/match/);
   expect(signupError("me", "longpassword12", "longpassword12")).toBe("");
 });

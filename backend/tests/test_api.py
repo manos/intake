@@ -283,12 +283,12 @@ def test_password_hash_and_backup_refuses_overwrite(tmp_path):
 
     path = initialize(tmp_path)
     with pytest.raises(ValueError):
-        create_user(path, "sample", "short")
-    create_user(path, "sample", "long synthetic password")
+        create_user(path, "sample", "")
+    create_user(path, "sample", "x")
     with sqlite3.connect(path) as db:
         salt, password = db.execute("select salt,password from users").fetchone()
         assert len(salt) == 32
-        assert password != b"long synthetic password"
+        assert password != b"x"
     with pytest.raises(FileExistsError):
         backup(path, path)
 

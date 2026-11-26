@@ -22,7 +22,7 @@ def main():
     path = initialize(os.environ.get("CONFIG_DIR", "/config"))
     try:
         if args.command == "create-user":
-            password = getpass.getpass("Password (12+ characters): ")
+            password = getpass.getpass("Password: ")
             if password != getpass.getpass("Confirm password: "):
                 parser.error("Passwords differ")
             create_user(path, args.username, password)

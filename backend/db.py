@@ -80,8 +80,8 @@ def create_user(path, username, password):
         raise ValueError(
             "Username must be 1–64 letters, numbers, dots, underscores or hyphens"
         )
-    if not 12 <= len(password) <= 1024:
-        raise ValueError("Password must contain 12–1024 characters")
+    if not password:
+        raise ValueError("Password is required")
     with connect(path, write=True) as db:
         insert_user(db, username, password, "UTC")
 

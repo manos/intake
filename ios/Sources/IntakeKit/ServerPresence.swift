@@ -2,7 +2,7 @@ import Foundation
 
 /// A working network path alone doesn't mean the user's server is reachable.
 public struct ServerPresence {
-  public enum Badge { case checking, connected, offline, signIn, syncFailed }
+  public enum Badge { case checking, connected, offline, syncFailed }
   public private(set) var generation = UUID()
   private var offline = false
   private var response: (server: String, reachable: Bool)?
@@ -25,10 +25,9 @@ public struct ServerPresence {
     failedServer = succeeded ? nil : server
   }
   public func badge(server: String?, signedIn: Bool) -> Badge? {
-    guard let server else { return nil }
-    if signedIn && failedServer == server { return .syncFailed }
+    guard signedIn, let server else { return nil }
+    if failedServer == server { return .syncFailed }
     if offline { return .offline }
-    if !signedIn { return .signIn }
     guard let response, response.server == server else { return .checking }
     return response.reachable ? .connected : .offline
   }

@@ -58,6 +58,16 @@ def test_opt_in_signup_and_duplicate_does_not_replace_password(tmp_path, monkeyp
     assert client.get("/api/me").status_code == 200
 
 
+@pytest.mark.parametrize("size", [1, 1200, 6200])
+def test_password_length_is_not_a_signup_or_login_policy(tmp_path, monkeypatch, size):
+    client = make_client(tmp_path, monkeypatch)
+    password = "x" * size
+    assert signup(client, password=password).status_code == 201
+    client.cookies.clear()
+    assert client.get("/api/me", auth=("sample", password)).status_code == 200
+    assert client.get("/api/me", auth=("sample", password + "y")).status_code == 401
+
+
 def test_parallel_bootstrap_creates_only_one(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -79,8 +89,7 @@ def test_parallel_bootstrap_creates_only_one(tmp_path, monkeypatch):
         {"username": ""},
         {"username": "invalid name"},
         {"username": "a" * 65},
-        {"password": "short"},
-        {"password": "x" * 1025},
+        {"password": ""},
         {"password": 12},
         {"timezone": "../UTC"},
         {"timezone": "Invalid/Zone"},
@@ -99,7 +108,7 @@ def test_signup_throttle_persists_and_is_separate_from_login(tmp_path, monkeypat
     client = make_client(tmp_path, monkeypatch, allow=True)
     assert signup(client).status_code == 201
     for _ in range(5):
-        assert signup(client, password="short").status_code == 422
+        assert signup(client, password="").status_code == 422
     from backend.app import create_app
 
     restarted = TestClient(create_app(tmp_path))

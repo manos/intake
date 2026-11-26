@@ -68,7 +68,6 @@ private struct SyncStatusRow: View {
     case .syncFailed: return ("Sync failed", "exclamationmark.icloud.fill", .orange)
     case .offline: return ("Offline", "icloud.slash", .secondary)
     case .checking: return ("Checking", "ellipsis.icloud", .secondary)
-    case .signIn: return ("Sign in", "person.crop.circle.badge.exclamationmark", .orange)
     }
   }
   var body: some View {

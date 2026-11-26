@@ -87,7 +87,6 @@ struct SettingsView: View {
               m.syncStatus.isEmpty ? (m.signedIn ? "Connected" : "Sign in to sync") : m.syncStatus)
             if m.signedIn {
               Button("Sync now") { m.trigger() }.disabled(m.busy)
-              Button("Compare entire server history") { m.reconcile() }.disabled(m.busy)
               Button("Sign out") { m.signout() }.disabled(m.busy)
             }
           } else if !connecting && m.candidate == nil {

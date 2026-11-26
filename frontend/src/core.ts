@@ -487,8 +487,7 @@ export function signupError(
 ) {
   if (!/^[A-Za-z0-9_.-]{1,64}$/.test(username.trim()))
     return "Use 1–64 letters, numbers, dots, hyphens or underscores for your username.";
-  if (password.length < 12 || password.length > 1024)
-    return "Use a password between 12 and 1024 characters.";
+  if (!password) return "Enter a password.";
   if (password !== confirmation) return "Your passwords don’t match.";
   return "";
 }
