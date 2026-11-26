@@ -5,6 +5,40 @@ import XCTest
 
 /// CI starts an isolated HTTP FastAPI process on loopback.
 final class BackendInteropTests: XCTestCase {
+  func testFormattedDayFromOfflinePhoneAppearsOnSecondClient() async throws {
+    guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
+      URL(string: root)?.host == "127.0.0.1"
+    else { throw XCTSkip("Requires the disposable loopback backend.") }
+    let local = try Journal()
+    let day = "2026-11-26"
+    let note = Record(
+      .day, id: JournalTime.dayID(day),
+      data: [
+        "date": .string(day), "note": .string("🌿 Morning\nA daily note."), "zero": .bool(false),
+        "styles": .array([DayStyle(range: NSRange(location: 3, length: 7), flags: 3).wire]),
+      ])
+    try local.put(note)
+    let server = try await Server.discover(root)
+    let (user, token) = try await server.authenticate(
+      username: UUID().uuidString, password: UUID().uuidString, signup: true, timezone: "UTC")
+    let binding = Binding(
+      origin: server.origin.absoluteString, account: user.id, username: user.username)
+    try local.link(binding, remote: [], cursor: 0, settings: user.settings)
+    let result = try await server.pull(
+      local.requestBody(local.batch()), token: token, account: user.id)
+    XCTAssertEqual(result.results.first?.status, "applied")
+    try local.accept(result)
+    let (records, cursor) = try await server.snapshot(token: token, account: user.id)
+    let second = try Journal()
+    try second.link(binding, remote: records, cursor: cursor, settings: user.settings)
+    let restored = try XCTUnwrap(JournalDisplay(second.read()).notesByDay[day]?.first)
+    XCTAssertEqual(restored.id, note.id)
+    XCTAssertEqual(restored.data, note.data)
+    XCTAssertEqual(
+      try DayStyle.spans(in: restored), [DayStyle(range: NSRange(location: 3, length: 7), flags: 3)]
+    )
+    try await server.deleteAccount(token: token, account: user.id)
+  }
   func testNativeLoginAndRelaunchUseDifferentErrorsForCredentialsAndSession() async throws {
     guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
       let origin = URL(string: root), origin.host == "127.0.0.1"

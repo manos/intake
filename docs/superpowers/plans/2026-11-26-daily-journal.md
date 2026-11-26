@@ -23,7 +23,7 @@
 - Saving the same date from Today, History, or Journal must edit the same record.
 
 ## Tasks
-- [ ] `Server.swift`, `JournalModel.swift`, `SettingsView.swift`, Info.plist: test address parsing and anonymous redirect discovery; use the verified endpoint for auth and save the permanent address on successful link.
-- [ ] `backend/models.py`, `backend/app.py`, `frontend/src/import.ts`, `IntakeKit`: validate optional UTF-16 formatting runs while preserving plain day notes and snapshot compatibility. Test valid and malformed formatting on each side.
-- [ ] Native Journal tab and shared day editor: show adjacent civil days and a date picker; render notes, compact totals, and empty/zero states from the local display index. Edit bold and heading text inline with TextKit.
+- [x] `Server.swift`, `JournalModel.swift`, `SettingsView.swift`, Info.plist: test address parsing and anonymous redirect discovery; use the verified endpoint for auth and save the permanent address on successful link.
+- [x] `backend/models.py`, `backend/app.py`, `frontend/src/import.ts`, `IntakeKit`: validate optional UTF-16 formatting runs while preserving plain day notes and snapshot compatibility. Test valid and malformed formatting on each side.
+- [x] Native Journal tab and shared day editor: show adjacent civil days and a date picker; render notes, compact totals, and empty/zero states from the local display index. Edit bold and heading text inline with TextKit.
 - [ ] Update setup and journaling docs, build the iPhone app, run targeted tests, push to main, and verify the deployed server.
