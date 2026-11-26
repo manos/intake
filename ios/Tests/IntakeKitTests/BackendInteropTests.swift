@@ -3,7 +3,7 @@ import XCTest
 
 @testable import IntakeKit
 
-/// CI starts an isolated FastAPI process on loopback; the shipping transport is HTTPS-only.
+/// CI starts an isolated HTTP FastAPI process on loopback.
 final class BackendInteropTests: XCTestCase {
   func testNativeLoginAndRelaunchUseDifferentErrorsForCredentialsAndSession() async throws {
     guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
@@ -12,7 +12,7 @@ final class BackendInteropTests: XCTestCase {
     let username = UUID().uuidString
     // Spaces are permitted in a password; only surrounding username whitespace is ignored.
     let password = " " + UUID().uuidString + " "
-    let client = Server(origin: origin)
+    let client = try await Server.discover(origin.absoluteString)
     let (account, _) = try await client.authenticate(
       username: username, password: password, signup: true, timezone: "UTC")
     do {

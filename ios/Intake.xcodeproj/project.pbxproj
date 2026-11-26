@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		12B1479622B8E2F88C5081A8 /* RichDayEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43125D1A8D8D9982F51DA1C /* RichDayEditor.swift */; };
 		29E75DB288C72D0CE2E3BDCF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2FF4B0C0896827FF56C998 /* SettingsView.swift */; };
 		514B48FB16E81C73F9094042 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 065B4A2751F06CD71C027BD0 /* PrivacyInfo.xcprivacy */; };
+		90823A9D99C2F938CCDBB574 /* DailyJournalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03DC91E22B2124F58F6C6CEE /* DailyJournalView.swift */; };
 		A61E8F1D5EC5330F3E64CC82 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA29308495E50431AF3F58AD /* HistoryView.swift */; };
 		AA6AAA8E16E0B4F6712BAA5D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B29C5F447246512381BC7B36 /* Assets.xcassets */; };
 		ABD131EE783EDBE197C6F3CC /* IntakeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2C7F4ED7ECFCB6220792E9 /* IntakeApp.swift */; };
@@ -18,6 +20,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		03DC91E22B2124F58F6C6CEE /* DailyJournalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyJournalView.swift; sourceTree = "<group>"; };
 		065B4A2751F06CD71C027BD0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		1496DF793F9D67DBE35FD14B /* Intake.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Intake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3497226F9C9CAA571C308D0F /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
@@ -27,6 +30,7 @@
 		B29C5F447246512381BC7B36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DA29308495E50431AF3F58AD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		EC837C9952E164BD733B98C6 /* JournalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalModel.swift; sourceTree = "<group>"; };
+		F43125D1A8D8D9982F51DA1C /* RichDayEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichDayEditor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,11 +57,13 @@
 			isa = PBXGroup;
 			children = (
 				B29C5F447246512381BC7B36 /* Assets.xcassets */,
+				03DC91E22B2124F58F6C6CEE /* DailyJournalView.swift */,
 				800D17CDABB2A5A0D672EFA6 /* DeviceSession.swift */,
 				DA29308495E50431AF3F58AD /* HistoryView.swift */,
 				4C2C7F4ED7ECFCB6220792E9 /* IntakeApp.swift */,
 				EC837C9952E164BD733B98C6 /* JournalModel.swift */,
 				065B4A2751F06CD71C027BD0 /* PrivacyInfo.xcprivacy */,
+				F43125D1A8D8D9982F51DA1C /* RichDayEditor.swift */,
 				4C2FF4B0C0896827FF56C998 /* SettingsView.swift */,
 			);
 			path = App;
@@ -153,10 +159,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				90823A9D99C2F938CCDBB574 /* DailyJournalView.swift in Sources */,
 				E928E351C438A60E46433EEB /* DeviceSession.swift in Sources */,
 				A61E8F1D5EC5330F3E64CC82 /* HistoryView.swift in Sources */,
 				ABD131EE783EDBE197C6F3CC /* IntakeApp.swift in Sources */,
 				F0B0873AA3470E034BFC347F /* JournalModel.swift in Sources */,
+				12B1479622B8E2F88C5081A8 /* RichDayEditor.swift in Sources */,
 				29E75DB288C72D0CE2E3BDCF /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -227,6 +235,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Support/Info.plist;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Intake connects to your self-hosted journal when you enable sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -250,6 +259,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Support/Info.plist;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Intake connects to your self-hosted journal when you enable sync.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

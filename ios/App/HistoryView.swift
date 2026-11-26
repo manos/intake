@@ -185,7 +185,7 @@ struct HistoryView: View {
           if !rows.isEmpty || dayNote != nil {
             Section {
               if let dayNote {
-                if !dayNote.text("note").isEmpty { Text(dayNote.text("note")) }
+                if !dayNote.text("note").isEmpty { DayNoteText(row: dayNote) }
                 if dayNote.data["zero"] == .bool(true) && (buckets[day] ?? []).isEmpty {
                   Text("Confirmed zero")
                 }

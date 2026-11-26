@@ -141,7 +141,10 @@ function validate(entity: string, d: any, label: string) {
     day: ["date", "note", "zero"],
   };
   if (
-    Object.keys(d).some((k) => !shape[entity].includes(k)) ||
+    Object.keys(d).some(
+      (k) =>
+        !shape[entity].includes(k) && !(entity === "day" && k === "styles"),
+    ) ||
     shape[entity].some((k) => !(k in d))
   )
     fail("unexpected or missing fields.");
@@ -196,4 +199,31 @@ function validate(entity: string, d: any, label: string) {
       !string(d.note, 10000))
   )
     fail("invalid day note.");
+  if (entity === "day" && "styles" in d) {
+    if (!Array.isArray(d.styles) || d.styles.length > 10000)
+      fail("invalid journal formatting.");
+    let end = 0;
+    const boundary = (i: number) =>
+      i === d.note.length ||
+      !(d.note.charCodeAt(i) >= 0xdc00 && d.note.charCodeAt(i) <= 0xdfff);
+    for (const span of d.styles) {
+      if (
+        !Array.isArray(span) ||
+        span.length !== 3 ||
+        !span.every(Number.isSafeInteger)
+      )
+        fail("invalid journal formatting range.");
+      const [start, len, flags] = span;
+      if (
+        start < end ||
+        len <= 0 ||
+        start + len > d.note.length ||
+        !boundary(start) ||
+        !boundary(start + len) ||
+        ![1, 2, 3].includes(flags)
+      )
+        fail("invalid journal formatting range.");
+      end = start + len;
+    }
+  }
 }

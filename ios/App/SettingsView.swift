@@ -36,6 +36,8 @@ enum AppAccent: String, CaseIterable {
 }
 
 struct SettingsView: View {
+  private let guide = URL(
+    string: "https://github.com/manos/intake/blob/main/README.md#native-iphone-app")!
   @SwiftUI.Binding var accent: AppAccent
   @EnvironmentObject var m: JournalModel
   @State var address = ""
@@ -82,7 +84,7 @@ struct SettingsView: View {
         }
         Section("Sync") {
           if let b = m.state.binding {
-            Text(b.username + " · " + b.origin).textSelection(.enabled)
+            Text(b.username + " · " + b.address).textSelection(.enabled)
             Text(
               m.syncStatus.isEmpty ? (m.signedIn ? "Connected" : "Sign in to sync") : m.syncStatus)
             if m.signedIn {
@@ -93,8 +95,11 @@ struct SettingsView: View {
             Button("Connect to server", systemImage: "icloud") { connecting = true }
           }
           if !m.signedIn && (m.state.binding != nil || connecting) && m.candidate == nil {
-            if !register { Text("Use your Intake server username and password.").font(.footnote) }
-            TextField("HTTPS server", text: $address).keyboardType(.URL)
+            HStack(spacing: 3) {
+              Text("Your self-hosted Intake server")
+              Link("(docs)", destination: guide)
+            }.font(.footnote)
+            TextField("Server address", text: $address).keyboardType(.URL)
               .textInputAutocapitalization(.never).autocorrectionDisabled()
             TextField("Username", text: $name).textInputAutocapitalization(.never)
               .autocorrectionDisabled().textContentType(.username)
@@ -108,7 +113,7 @@ struct SettingsView: View {
             Button("Check signup availability") {
               Task {
                 do {
-                  supportsSignup = try await Server(address).canRegister()
+                  supportsSignup = try await Server.discover(address).canRegister()
                   if !supportsSignup { m.message = "Registration is unavailable on this server." }
                 } catch { m.message = error.localizedDescription }
               }
@@ -131,11 +136,10 @@ struct SettingsView: View {
               connecting = false
             }
           }
-          Link(
-            destination: URL(
-              string: "https://github.com/manos/intake/blob/main/README.md#native-iphone-app")!
-          ) {
-            Label("Setup and sync guide", systemImage: "book")
+          if m.signedIn || (!connecting && m.state.binding == nil) {
+            Link(destination: guide) {
+              Label("Setup and sync guide", systemImage: "book")
+            }
           }
         }
         ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
@@ -270,7 +274,7 @@ struct SettingsView: View {
         .onAppear {
           timezone = m.state.settings.timezone
           boundary = m.state.settings.day_start
-          if address.isEmpty { address = m.state.binding?.origin ?? "" }
+          if address.isEmpty { address = m.state.binding?.address ?? "" }
           name = m.state.binding?.username ?? name
         }
         .onChange(of: m.state.settings) { _, s in

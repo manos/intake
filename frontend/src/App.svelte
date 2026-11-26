@@ -568,7 +568,14 @@
     const row = store.records.find(
       (r) => r.entity === "day" && r.data.date === activeDate,
     );
-    const data = { date: activeDate, note: dailyNote, zero };
+    const data = {
+      date: activeDate,
+      note: dailyNote,
+      zero,
+      ...(row?.data.note === dailyNote && row.data.styles
+        ? { styles: row.data.styles }
+        : {}),
+    };
     const id = row?.id ?? (await dayId(data.date));
     if (await write("day", id, data, false, active)) close();
   }

@@ -76,6 +76,13 @@ public struct Record: Codable, Equatable, Identifiable {
   }
   public var purged: Bool { deleted && data.isEmpty }
   func equivalent(_ other: Self) -> Bool {
+    if entity == .day, other.entity == .day {
+      var a = data
+      var b = other.data
+      if a["styles"] == .array([]) { a.removeValue(forKey: "styles") }
+      if b["styles"] == .array([]) { b.removeValue(forKey: "styles") }
+      return deleted == other.deleted && a == b
+    }
     guard entity == other.entity, deleted == other.deleted, data.keys == other.data.keys else {
       return false
     }
@@ -104,10 +111,13 @@ public struct Settings: Codable, Equatable {
 }
 public struct Binding: Codable, Equatable {
   public let origin: String, account: String, username: String
-  public init(origin: String, account: String, username: String) {
+  public let discoveryOrigin: String?
+  public var address: String { discoveryOrigin ?? origin }
+  public init(origin: String, account: String, username: String, discoveryOrigin: String? = nil) {
     self.origin = origin
     self.account = account
     self.username = username
+    self.discoveryOrigin = discoveryOrigin
   }
   public var key: String { origin + "|" + account }
 }

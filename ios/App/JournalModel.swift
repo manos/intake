@@ -121,7 +121,7 @@ import SwiftUI
   }
   func authenticate(_ address: String, _ name: String, _ password: String, signup: Bool) {
     foregroundWork {
-      let server = try Server(address)
+      let server = try await Server.discover(address)
       let (profile, token) = try await server.authenticate(
         username: name, password: password, signup: signup, timezone: self.state.settings.timezone)
       let c = Candidate(server: server, profile: profile, token: token, signup: signup)
@@ -135,7 +135,9 @@ import SwiftUI
   private func link(_ c: Candidate) async throws {
     guard let file, var target = journal else { throw Problem.message("Journal unavailable.") }
     let binding = IntakeKit.Binding(
-      origin: c.server.origin.absoluteString, account: c.profile.id, username: c.profile.username)
+      origin: c.server.origin.absoluteString, account: c.profile.id, username: c.profile.username,
+      discoveryOrigin: c.server.savedOrigin == c.server.origin
+        ? nil : c.server.savedOrigin.absoluteString)
     if state.binding?.key != binding.key {
       var found: Journal?
       for id in try target.profiles() {
@@ -159,8 +161,11 @@ import SwiftUI
         return
       }
       let (rows, cursor) = try await c.server.snapshot(token: c.token, account: c.profile.id)
+      guard let previous = try target.read().binding, previous.key == binding.key else {
+        throw ServerError.wrongAccount
+      }
       try target.link(
-        binding, remote: rows, cursor: cursor, settings: c.profile.settings, recovering: true)
+        previous, remote: rows, cursor: cursor, settings: c.profile.settings, recovering: true)
       try target.absorb(local: source.profile)
     }
     if try target.read().binding == nil {
@@ -172,16 +177,19 @@ import SwiftUI
         candidate = c
         return
       }
-      try target.link(
-        binding, remote: rows, cursor: cursor, settings: c.profile.settings, newAccount: c.signup)
-      let linked = try target.read()
-      if c.signup, linked.settingsConflict != nil {
-        let settings = linked.settings
+      let local = try target.read()
+      var settings = c.profile.settings
+      if c.signup, local.customized, settings != local.settings {
+        settings = local.settings
         try await c.server.settings(settings, token: c.token, account: c.profile.id)
-        try target.preferences(settings)
       }
+      try DeviceSession.set(binding.key, c.token)
+      try target.link(
+        binding, remote: rows, cursor: cursor, settings: settings, newAccount: c.signup)
+    } else {
+      try DeviceSession.set(binding.key, c.token)
+      if try target.read().binding != binding { try target.rememberRoute(binding) }
     }
-    try DeviceSession.set(binding.key, c.token)
     journal = target
     UserDefaults.standard.set(target.profile, forKey: "activeJournal")
     undo = nil
@@ -232,7 +240,7 @@ import SwiftUI
         guard let token = try DeviceSession.load(b.key) else {
           throw ServerError.response(401, nil)
         }
-        let server = try Server(b.origin)
+        let server = try await Server.resume(b)
         let profile = try await server.me(token, account: b.account)
         presence.report(server: b.key, generation: generation, reachable: true)
         if state.settingsConflict == nil && state.settings != profile.settings {
@@ -291,7 +299,7 @@ import SwiftUI
         completed = completed && !state.incomplete
         syncStatus = completed ? "Synced" : "Sync incomplete"
         delay = 2
-      } catch ServerError.response(401, _) {
+      } catch ServerError.response(401, _), ServerError.wrongAccount {
         completed = false
         try? DeviceSession.set(b.key, nil)
         signedIn = false
@@ -352,7 +360,7 @@ import SwiftUI
       try DeviceSession.set(b.key, nil)
       self.signedIn = false
       self.syncStatus = "Signed out"
-      if let token { try? await Server(b.origin).logout(token: token, account: b.account) }
+      if let token { try? await Server.resume(b).logout(token: token, account: b.account) }
     }
   }
   func deleteAccount(keepLocal: Bool) {
@@ -361,7 +369,7 @@ import SwiftUI
       guard let token = try DeviceSession.load(b.key) else {
         throw Problem.message("Sign in to delete this server account.")
       }
-      let server = try Server(b.origin)
+      let server = try await Server.resume(b)
       guard try await server.canDelete() else {
         throw Problem.message("Update this Intake server to enable account deletion.")
       }
@@ -391,7 +399,7 @@ import SwiftUI
         guard let token = try DeviceSession.load(b.key) else {
           throw Problem.message("Sign in to update this account's settings.")
         }
-        try await Server(b.origin).settings(p, token: token, account: b.account)
+        try await Server.resume(b).settings(p, token: token, account: b.account)
         try journal.preferences(p)
       }
     } else {
@@ -402,7 +410,7 @@ import SwiftUI
     guard let b = state.binding, let token = try DeviceSession.load(b.key) else {
       throw Problem.message("Connect to a server for Excel export.")
     }
-    return try await Server(b.origin).spreadsheet(
+    return try await Server.resume(b).spreadsheet(
       Transfer.export(state), token: token, account: b.account)
   }
 }

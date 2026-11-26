@@ -170,9 +170,10 @@ public enum Transfer {
           "Timestamp must include a date, a time, and a UTC offset (Z or ±HH:MM).")
       }
     case .day:
-      keys = ["date", "note", "zero"]
+      keys = ["date", "note", "zero", "styles"]
       let day = r.text("date")
       try text("note", "Day note", max: 10_000, allowEmpty: true)
+      _ = try DayStyle.spans(in: r)
       guard case .bool = r.data["zero"] else {
         throw Problem.message("Zero day must be true or false.")
       }

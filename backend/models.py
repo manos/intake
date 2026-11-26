@@ -6,7 +6,7 @@ from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Strict(BaseModel):
@@ -101,6 +101,34 @@ class Day(Strict):
     date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     note: str = Field(max_length=10000)
     zero: bool
+    # [UTF-16 location, length, flags]; flags 1=bold, 2=heading, 3=both.
+    styles: list[list[int]] = Field(default_factory=list, max_length=10000)
+
+    @model_validator(mode="after")
+    def valid_styles(self):
+        if not self.styles:
+            return self
+        boundaries = {0}
+        offset = 0
+        for char in self.note:
+            offset += 2 if ord(char) > 0xFFFF else 1
+            boundaries.add(offset)
+        previous_end = 0
+        for span in self.styles:
+            if len(span) != 3:
+                raise ValueError("Invalid journal formatting")
+            start, length, flags = span
+            end = start + length
+            if (
+                start < previous_end
+                or length <= 0
+                or start not in boundaries
+                or end not in boundaries
+                or flags not in (1, 2, 3)
+            ):
+                raise ValueError("Invalid journal formatting range")
+            previous_end = end
+        return self
 
     @field_validator("date")
     @classmethod

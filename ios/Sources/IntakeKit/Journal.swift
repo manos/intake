@@ -24,6 +24,12 @@ public final class Journal {
     return try JSONDecoder().decode(JournalState.self, from: data)
   }
   public func read() throws -> JournalState { try db.read(load) }
+  public func rememberRoute(_ binding: Binding) throws {
+    try change { s in
+      guard binding.key == s.binding?.key else { throw ServerError.wrongAccount }
+      s.binding = binding
+    }
+  }
   public func scope() throws -> String { profile + "|" + (try read().binding?.key ?? "local") }
   public func profiles() throws -> [String] {
     try db.read { try String.fetchAll($0, sql: "SELECT profile FROM journals ORDER BY profile") }

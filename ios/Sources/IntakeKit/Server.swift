@@ -30,27 +30,16 @@ private final class NoRedirect: NSObject, URLSessionTaskDelegate {
 }
 public final class Server {
   public let origin: URL
+  public let savedOrigin: URL
   private let session: URLSession
   public convenience init(_ address: String) throws {
-    guard var c = URLComponents(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
-      c.scheme?.lowercased() == "https",
-      let host = c.host, !host.isEmpty, c.user == nil, c.password == nil, c.fragment == nil,
-      c.query == nil, c.path.isEmpty || c.path == "/"
-    else {
-      throw Problem.message("Enter the server's full HTTPS origin, without a path or credentials.")
-    }
-    c.path = ""
-    c.host = host.lowercased()
-    c.scheme = "https"
-    if c.port == 443 { c.port = nil }
-    guard let url = c.url else { throw Problem.message("Invalid server address.") }
-    self.init(origin: url)
+    self.init(origin: try ServerRoute.parse(address))
   }
-  // The app enters through the HTTPS-only initializer. Interop tests use the
-  // same transport and cookie handling against their disposable loopback server.
-  internal init(origin: URL) {
+  internal init(origin: URL, saved: URL? = nil, configuration: URLSessionConfiguration = .ephemeral)
+  {
     self.origin = origin
-    let config = URLSessionConfiguration.ephemeral
+    savedOrigin = saved ?? origin
+    let config = configuration
     config.httpShouldSetCookies = false
     config.httpCookieStorage = nil
     config.urlCache = nil
@@ -59,6 +48,34 @@ public final class Server {
     session = URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
   }
   deinit { session.invalidateAndCancel() }
+  /// Guest probes never carry the password, cookie, account ID, or an operation body.
+  public static func discover(_ address: String) async throws -> Server {
+    try await discover(address, configuration: .ephemeral)
+  }
+  internal static func discover(_ address: String, configuration: URLSessionConfiguration)
+    async throws -> Server
+  {
+    let client = Server(origin: try ServerRoute.parse(address), configuration: configuration)
+    func probe(_ url: URL) async throws -> (Int, String?) {
+      var req = URLRequest(url: url)
+      req.httpMethod = "HEAD"
+      let (_, response) = try await client.session.data(for: req)
+      guard let http = response as? HTTPURLResponse else { throw ServerError.invalid }
+      return (http.statusCode, http.value(forHTTPHeaderField: "Location"))
+    }
+    let root = try await ServerRoute.resolve(client.origin, probe: probe)
+    let route = try await ServerRoute.resolve(
+      root.endpoint.appendingPathComponent("api/registration"), previous: root, probe: probe)
+    let server = Server(origin: route.endpoint, saved: route.saved, configuration: configuration)
+    _ = try JSONDecoder().decode(Registration.self, from: await server.call("registration").0)
+    return server
+  }
+  public static func resume(_ binding: Binding) async throws -> Server {
+    guard let alias = binding.discoveryOrigin else { return try Server(binding.origin) }
+    let server = try await discover(alias)
+    guard server.origin.absoluteString == binding.origin else { throw ServerError.wrongAccount }
+    return server
+  }
   private func call(
     _ path: String, method: String = "GET", body: Data? = nil, token: String? = nil,
     account: String? = nil, basic: String? = nil
@@ -71,7 +88,23 @@ public final class Server {
     if let token { req.setValue("intake_session=" + token, forHTTPHeaderField: "Cookie") }
     req.setValue(account, forHTTPHeaderField: "X-Intake-Account")
     req.setValue(basic, forHTTPHeaderField: "Authorization")
-    let (data, response) = try await session.data(for: req)
+    var seen = Set<URL>()
+    var data = Data()
+    var response: URLResponse
+    repeat {
+      guard let url = req.url, seen.count < 10, seen.insert(url).inserted else {
+        throw Problem.message("The API returned a redirect loop.")
+      }
+      (data, response) = try await session.data(for: req)
+      guard let http = response as? HTTPURLResponse, ServerRoute.redirects.contains(http.statusCode)
+      else { break }
+      guard let location = http.value(forHTTPHeaderField: "Location"),
+        let target = URL(string: location, relativeTo: url)?.absoluteURL,
+        try ServerRoute.origin(target) == origin, target.path.hasPrefix("/api/"),
+        method == "GET" || [307, 308].contains(http.statusCode)
+      else { throw Problem.message("The API moved. Reconnect using its server address.") }
+      req.url = target
+    } while true
     guard let http = response as? HTTPURLResponse else { throw ServerError.invalid }
     if http.statusCode == 409, path == "sync",
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -120,6 +153,9 @@ public final class Server {
         .first(where: { $0.name == "intake_session" && $0.path == "/api" }),
       !cookie.value.isEmpty
     else { throw Problem.message("Server did not establish an Intake session.") }
+    if cookie.isSecure, origin.scheme != "https" {
+      throw Problem.message("This server requires HTTPS for its session. Use its HTTPS address.")
+    }
     let profile = try JSONDecoder().decode(Profile.self, from: answer.0)
     _ = try await me(cookie.value, account: profile.id)
     return (profile, cookie.value)

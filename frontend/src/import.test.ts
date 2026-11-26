@@ -1,6 +1,24 @@
 import { it, expect } from "vitest";
 import { previewImport } from "./import";
 const id = "c7149fd8-c42d-45b1-91ce-c78686d221e1";
+it("imports native journal formatting without splitting Unicode characters", () => {
+  const day = {
+    id,
+    date: "2026-11-26",
+    note: "🌿 Morning",
+    zero: false,
+    styles: [[3, 7, 3]],
+  };
+  const preview = () =>
+    previewImport(
+      JSON.stringify({ items: [], entries: [], days: [day] }),
+      "journal.json",
+    );
+  expect(preview().errors).toEqual([]);
+  expect(preview().rows[0].data.styles).toEqual([[3, 7, 3]]);
+  day.styles = [[1, 1, 1]];
+  expect(preview().errors).toHaveLength(1);
+});
 it("round trips decimal strings in backups", () => {
   const p = previewImport(
     JSON.stringify({

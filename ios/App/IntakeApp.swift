@@ -11,6 +11,8 @@ import SwiftUI
         if model.ready {
           TabView {
             TodayView().tabItem { Label("Today", systemImage: "clock") }
+            DailyJournalView(today: JournalTime.day(.now, settings: model.state.settings))
+              .tabItem { Label("Journal", systemImage: "book.pages") }
             HistoryView().tabItem { Label("History", systemImage: "calendar") }
             SettingsView(accent: $accent).tabItem { Label("Settings", systemImage: "gearshape") }
           }.id(model.scope)
@@ -165,7 +167,7 @@ struct TodayView: View {
           let entries = m.display.entriesByDay[day] ?? []
           let dayRow = m.display.notesByDay[day]?.first
           if let dayRow {
-            Text(dayRow.text("note"))
+            DayNoteText(row: dayRow)
             if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
               Text("Confirmed zero").font(.caption)
             }
@@ -444,36 +446,5 @@ struct ItemEditor: View {
   }
   func field(_ k: String) -> SwiftUI.Binding<String> {
     .init(get: { row.text(k) }, set: { row.data[k] = .string($0) })
-  }
-}
-struct DayEditor: View {
-  @EnvironmentObject var m: JournalModel
-  @Environment(\.dismiss) var dismiss
-  let day: String
-  @State private var note = ""
-  @State private var zero = false
-  @State private var original: Record?
-  var existing: Record? { m.display.notesByDay[day]?.first }
-  var body: some View {
-    NavigationStack {
-      Form {
-        TextField("Day note", text: $note, axis: .vertical)
-        Toggle("Confirmed zero day", isOn: $zero)
-      }.navigationTitle(day).onAppear {
-        original = existing
-        note = existing?.text("note") ?? ""
-        zero = existing?.data["zero"] == .bool(true)
-      }
-      .toolbar {
-        Button("Save") {
-          var r = Record(
-            .day, id: original?.id ?? JournalTime.dayID(day),
-            data: ["date": .string(day), "note": .string(note), "zero": .bool(zero)])
-          r.version = original?.version ?? 0
-          if m.change({ try $0.put(r) }) { dismiss() }
-        }
-        Button("Cancel") { dismiss() }
-      }
-    }
   }
 }

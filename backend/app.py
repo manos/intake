@@ -454,6 +454,16 @@ def create_app(config_dir=None):
                     )
                     if op.deleted and not current:
                         raise ValueError("Cannot delete missing record")
+                    if op.entity == "day" and not op.deleted and not data["styles"]:
+                        data.pop("styles")
+                        # An older client may only be updating the zero-day flag.
+                        # Preserve unchanged text's styles unless explicitly cleared.
+                        if current and "styles" not in op.data:
+                            prior = json.loads(current.data)
+                            if prior.get("note") == data["note"] and prior.get(
+                                "styles"
+                            ):
+                                data["styles"] = prior["styles"]
                     if op.entity == "entry" and not op.deleted:
                         parent = db.get(Record, (uid, data["item_id"]))
                         if purged(parent):

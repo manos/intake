@@ -2,6 +2,8 @@
 
 `Intake.xcodeproj` is the checked-in project; opening it does not require XcodeGen. `project.yml` is its source for target changes. The `IntakeKit` package pins GRDB. CI runs the Swift tests against a disposable FastAPI backend and builds the Release target for iPhone without a distribution identity.
 
+For App Review's transport-security question: users supply their own server, and arbitrary HTTP LAN names (including dotted aliases) cannot be enumerated in advance. Intake supports direct HTTP and credential-free discovery of HTTP-to-HTTPS redirects. HTTPS trust validation stays enabled.
+
 ## Device recovery acceptance
 
 Before distribution, use two dedicated test devices with synthetic records and the same signed build. A simulator, a reopened SQLite file, or a successful archive does not prove an iCloud restore.
