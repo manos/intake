@@ -228,7 +228,7 @@ public final class Journal {
             s.records[local.id] = local
             s.conflicts[local.id] = Conflict(
               remote: nil,
-              reason: "Multiple server day notes share this date. Compare them before saving.")
+              reason: "Multiple Daily Journal entries share this date. Compare them before saving.")
             continue
           }
         }
@@ -365,7 +365,7 @@ public final class Journal {
   public func resolveDay(_ day: String, using choice: Record) throws {
     try change { s in
       guard let rows = s.competingDays[day], rows.contains(where: { $0.id == choice.id }) else {
-        throw Problem.message("Day notes changed. Review them again.")
+        throw Problem.message("Daily Journal entries changed. Review them again.")
       }
       let existing = rows.filter { s.baseline[$0.id] != nil }
       let winner =

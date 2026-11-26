@@ -200,7 +200,7 @@ function validate(entity: string, d: any, label: string) {
       typeof d.zero !== "boolean" ||
       !string(d.note, 10000))
   )
-    fail("invalid day note.");
+    fail("invalid Daily Journal entry.");
   if (entity === "day" && "styles" in d) {
     if (!Array.isArray(d.styles) || d.styles.length > 10000)
       fail("invalid journal formatting.");

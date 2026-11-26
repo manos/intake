@@ -422,7 +422,7 @@ main {
 .empty-timeline small {
   font-size: 0.7rem;
 }
-.day-note {
+.daily-journal {
   width: 100%;
   text-align: left;
   background: #292135;
@@ -432,13 +432,13 @@ main {
   margin-top: 20px;
   position: relative;
 }
-.day-note p {
+.daily-journal p {
   font-family: Georgia, serif;
   font-size: 1.1rem;
   white-space: pre-wrap;
   margin-top: 8px;
 }
-.day-note > span:last-child {
+.daily-journal > span:last-child {
   position: absolute;
   right: 20px;
   top: 20px;
@@ -1522,7 +1522,7 @@ details p {
 .history-notes-day {
   padding-bottom: 18px;
 }
-.history-day-note,
+.history-daily-journal,
 .history-noted-entry {
   display: block;
   width: 100%;
@@ -1533,7 +1533,7 @@ details p {
   background: #211a2b;
   margin-top: 8px;
 }
-.history-day-note:hover,
+.history-daily-journal:hover,
 .history-noted-entry:hover {
   background: #2b2037;
 }
@@ -1541,7 +1541,7 @@ details p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.history-day-note p,
+.history-daily-journal p,
 .history-noted-entry p {
   margin-top: 8px;
   color: #ded3ed;

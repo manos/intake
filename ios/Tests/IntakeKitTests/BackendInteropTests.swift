@@ -14,7 +14,7 @@ final class BackendInteropTests: XCTestCase {
     let note = Record(
       .day, id: JournalTime.dayID(day),
       data: [
-        "date": .string(day), "note": .string("🌿 Morning\nA daily note."), "zero": .bool(false),
+        "date": .string(day), "note": .string("🌿 Morning\nSecond line."), "zero": .bool(false),
         "styles": .array([DayStyle(range: NSRange(location: 3, length: 7), flags: 3).wire]),
       ])
     try local.put(note)

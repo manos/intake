@@ -516,9 +516,9 @@
             })} ↗</button
           >
           {#if day.note.trim()}<button
-              class="history-day-note"
+              class="history-daily-journal"
               onclick={() => onday(day.date)}
-              ><span class="eyebrow">DAY NOTE</span>
+              ><span class="eyebrow">Daily Journal</span>
               <p class="history-note-text">{day.note}</p></button
             >{/if}
           {#if showEntryNotes}{#each [...day.entries]

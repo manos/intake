@@ -53,7 +53,7 @@
     purgeBusy = $state(false);
   let timezone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone),
     boundary = $state(0),
-    dailyNote = $state(""),
+    dailyJournalText = $state(""),
     dayDraft = $state<{
       date: string;
       account: string;
@@ -566,7 +566,7 @@
       id: row?.id,
       version: row?.version,
     };
-    dailyNote = row?.data.note ?? "";
+    dailyJournalText = row?.data.note ?? "";
     zero = row?.data.zero ?? false;
     modal = "day";
   }
@@ -579,7 +579,7 @@
       dayDraft.account !== active.account ||
       dayDraft.date !== activeDate
     ) {
-      error = "Reopen the day note in the current journal.";
+      error = "Reopen the Daily Journal for this account.";
       return;
     }
     if (zero && dayEntries.length) {
@@ -588,14 +588,14 @@
     }
     const row = editableDay(store.records, dayDraft.date, dayDraft.id);
     if (row?.id !== dayDraft.id || row?.version !== dayDraft.version) {
-      error = "The day note changed. Reopen it before saving.";
+      error = "The Daily Journal changed. Reopen it before saving.";
       return;
     }
     const data = {
       date: activeDate,
-      note: dailyNote,
+      note: dailyJournalText,
       zero,
-      ...(row?.data.note === dailyNote && row.data.styles
+      ...(row?.data.note === dailyJournalText && row.data.styles
         ? { styles: row.data.styles }
         : {}),
     };
@@ -975,7 +975,7 @@
       <div class="section-label timeline-label">
         <h2>Timeline <span>{dayEntries.length}</span></h2>
         <button class="text-button" onclick={openDay}
-          >Day note <span>↗</span></button
+          >Daily Journal <span>↗</span></button
         >
       </div>
       {#if dayEntries.length}<div class="timeline">
@@ -1007,9 +1007,9 @@
           </p>
         </div>{/if}
       {#each store.records.filter((r) => r.entity === "day" && !r.deleted && r.data.date === activeDate && r.data.note) as day}<button
-          class="day-note"
+          class="daily-journal"
           onclick={openDay}
-          ><span class="eyebrow">DAY NOTE</span>
+          ><span class="eyebrow">Daily Journal</span>
           <p>{day.data.note}</p>
           <span>↗</span></button
         >{/each}
@@ -1449,14 +1449,13 @@
             >{purgeBusy ? "Deleting…" : "Delete permanently"}</button
           ><button class="text-button" onclick={close}>Cancel</button>
         </div>
-      {:else if modal === "day"}<h2 id="dialog-title">Day note</h2>
+      {:else if modal === "day"}<h2 id="dialog-title">Daily Journal</h2>
         <form onsubmit={saveDay}>
           <label
-            >Note<textarea
+            >Journal text<textarea
               rows="5"
               maxlength="10000"
-              placeholder="Note"
-              bind:value={dailyNote}></textarea></label
+              bind:value={dailyJournalText}></textarea></label
           ><label class="checkbox"
             ><input
               type="checkbox"
@@ -1467,7 +1466,7 @@
                 >{dayEntries.length ? "This day has entries." : ""}</small
               ></span
             ></label
-          ><button class="primary">Save day note <span>✓</span></button>
+          ><button class="primary">Save Daily Journal <span>✓</span></button>
         </form>
       {:else if modal === "settings"}<h2 id="dialog-title">Timezone</h2>
         <p>

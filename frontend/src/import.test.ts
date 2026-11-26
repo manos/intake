@@ -33,7 +33,7 @@ it("keeps the opened live day ID when deleted duplicates precede it", () => {
   expect(editableDay(rows, row.data.date, id)?.id).toBe(id);
   expect(editableDay(rows, row.data.date, "discarded")).toBeUndefined();
 });
-it("accepts a valid native day note longer than 10,000 UTF-16 units", () => {
+it("accepts a valid native Daily Journal entry longer than 10,000 UTF-16 units", () => {
   const note = "🌿".repeat(5001);
   const data = {
     items: [],

@@ -24,7 +24,7 @@ const records: Row[] = [
     deleted: false,
     data: {
       date: "2026-10-30",
-      note: "Day note first line\nDay note second line",
+      note: "Daily Journal first line\nDaily Journal second line",
       zero: false,
     },
   },
@@ -61,7 +61,7 @@ function history(rows: Row[]) {
 }
 it("shows the full daily and entry notes directly in History", () => {
   const html = history(records);
-  expect(html).toContain("Day note first line\nDay note second line");
+  expect(html).toContain("Daily Journal first line\nDaily Journal second line");
   expect(html).toContain("Entry note first line\nEntry note second line");
   expect(html).not.toContain("Note added");
 });

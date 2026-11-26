@@ -181,12 +181,12 @@ struct HistoryView: View {
         }
         ForEach(days.reversed(), id: \.self) { day in
           let rows = filtered(buckets[day] ?? [])
-          let dayNote = m.display.notesByDay[day]?.first
-          if !rows.isEmpty || dayNote != nil {
+          let dailyJournal = m.display.notesByDay[day]?.first
+          if !rows.isEmpty || dailyJournal != nil {
             Section {
-              if let dayNote {
-                if !dayNote.text("note").isEmpty { DayNoteText(row: dayNote) }
-                if dayNote.data["zero"] == .bool(true) && (buckets[day] ?? []).isEmpty {
+              if let dailyJournal {
+                if !dailyJournal.text("note").isEmpty { DailyJournalText(row: dailyJournal) }
+                if dailyJournal.data["zero"] == .bool(true) && (buckets[day] ?? []).isEmpty {
                   Text("Confirmed zero")
                 }
               }
@@ -218,7 +218,7 @@ struct HistoryView: View {
                   EntryLine(row: row)
                 }
               }
-              NavigationLink("Day note and zero day") { DayEditor(day: d.id) }
+              NavigationLink("Daily Journal") { DayEditor(day: d.id) }
             }.navigationTitle(d.id)
           }
         }

@@ -144,7 +144,7 @@ struct SettingsView: View {
           }
         }
         ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
-          Section("Choose the day note for \(day)") {
+          Section("Choose the Daily Journal entry for \(day)") {
             ForEach(m.display.competingDays[day] ?? []) { r in
               Button("Keep: \(r.text("note"))\(r.data["zero"] == .bool(true) ? " (zero day)" : "")")
               {

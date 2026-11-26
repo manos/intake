@@ -51,5 +51,15 @@ jobs:
           trap 'kill "$server"' EXIT
           curl --retry 15 --retry-connrefused --retry-delay 1 -fsS "$INTAKE_INTEROP_ORIGIN/health"
           swift test --package-path ios
+      - name: Test native Daily Journal editing with UIKit
+        run: |
+          # Open the package's test scheme, rather than the app's dependency scheme.
+          package="$(mktemp -d)"
+          for part in Package.swift Package.resolved Sources Tests; do
+            ln -s "$GITHUB_WORKSPACE/ios/$part" "$package/$part"
+          done
+          cd "$package"
+          xcodebuild -scheme IntakeKit -destination 'platform=macOS,variant=Mac Catalyst' \
+            -only-testing:IntakeKitTests/JournalTypographyTests -parallel-testing-enabled NO test
       - name: Build iPhone app
         run: xcodebuild -project ios/Intake.xcodeproj -scheme Intake -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build

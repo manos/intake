@@ -42,7 +42,7 @@ const day = (date: string, zero = true): Row => ({
   entity: "day",
   version: 0,
   deleted: false,
-  data: { date, zero, note: "daily note" },
+  data: { date, zero, note: "Daily Journal" },
 });
 
 describe("calendar periods", () => {
@@ -81,7 +81,7 @@ describe("local history", () => {
     ];
     const result = historyDays(rows, settings, "2026-10-29", "2026-10-30");
     expect(result[0].entries.map((e) => e.id)).toEqual(["before"]);
-    expect(result[0].note).toBe("daily note");
+    expect(result[0].note).toBe("Daily Journal");
     expect(result[1].entries.map((e) => e.id)).toEqual(["after"]);
   });
   it("never turns missing or filtered-out logs into confirmed zero days", () => {

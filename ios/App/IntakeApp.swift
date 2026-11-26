@@ -167,7 +167,7 @@ struct TodayView: View {
           let entries = m.display.entriesByDay[day] ?? []
           let dayRow = m.display.notesByDay[day]?.first
           if let dayRow {
-            DayNoteText(row: dayRow)
+            DailyJournalText(row: dayRow)
             if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
               Text("Confirmed zero").font(.caption)
             }
@@ -175,7 +175,7 @@ struct TodayView: View {
           Button {
             dayEditor = true
           } label: {
-            JournalActionLabel(title: "Edit day note or zero day")
+            JournalActionLabel(title: "Edit Daily Journal")
           }.buttonStyle(.borderless)
           if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 3) {

@@ -10,9 +10,9 @@ Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or 
 
 On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
 
-Daily totals appear just below **Edit day note or zero day**, before the first entry. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
+Daily totals appear just below **Edit Daily Journal**, before the first intake entry. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
 
-**Journal** opens to the current journal day. Swipe between pages, use the arrows, or tap the date to jump. Each page shows the day note above a compact intake summary, with separate totals for each item and unit. Tap **Write day note** or **Edit day note** for the large editor. Select text to apply **Bold** or **Heading**, or choose a style before typing. Tap **Save** to keep the page offline and sync it when connected. Today and History use the same note, and individual intake notes remain plain text. Existing notes appear immediately. Update your server before syncing formatted pages.
+**Journal** opens to the current journal day. Swipe between pages, use the arrows, or tap the date to jump. Each page shows the Daily Journal above a compact intake summary, with separate totals for each item and unit. Tap **Write Daily Journal** or **Edit Daily Journal** to open the editor. In the **Aa** formatting menu, choose **Bold**, **Body**, or **Heading** for selected text or the next text you type. Tap **Save** to keep the page offline and sync it when connected. Today and History open the same Daily Journal. Individual intake notes remain plain text.
 
 **Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
 
@@ -60,7 +60,7 @@ When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external ori
 - Create a medicine with a name, color, unit, default amount, and optional amount presets.
 - Tap its logging button to save now. Enter a note first if desired. Change the time to backdate. Edit or undo afterward.
 - Configure your timezone and when your day begins. Timestamps are retained exactly; grouping into a day never rounds them.
-- Add daily notes without adding an intake. Explicitly confirm a zero-intake day; an empty day is otherwise unrecorded.
+- Write in the Daily Journal without adding an intake. Explicitly confirm a zero-intake day; an empty day is otherwise unrecorded.
 - Explore History through weekly count/amount charts, an exact-time timeline, per-item summaries and a monthly calendar. Filter by dates or item, navigate previous periods, and tap a day or entry for its full journal and notes. Archived items and historical units remain available; quantities in different units stay separate.
 - Archive medicines while retaining history. Imported data is previewed and validated before saving.
 - Export a real Excel 97–2003 **`.xls`** workbook, including locally pending entries. XLS generation requires the backend. JSON backup is available offline; JSON/CSV imports support migration.

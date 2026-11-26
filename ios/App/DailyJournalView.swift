@@ -107,16 +107,17 @@ private struct JournalPage: View {
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 12) {
           if notes.count > 1 {
-            Text("Conflicting day notes").font(.headline)
-            Text("Choose the day note to keep in Settings.").foregroundStyle(.secondary)
+            Text("Conflicting Daily Journal entries").font(.headline)
+            Text("Choose the Daily Journal entry to keep in Settings.").foregroundStyle(.secondary)
           }
           ForEach(notes) { row in
-            if !row.text("note").isEmpty { DayNoteText(row: row).textSelection(.enabled) }
+            if !row.text("note").isEmpty { DailyJournalText(row: row).textSelection(.enabled) }
           }
           if notes.count < 2 {
             Button(action: edit) {
               Label(
-                notes.first?.text("note").isEmpty != false ? "Write day note" : "Edit day note",
+                notes.first?.text("note").isEmpty != false
+                  ? "Write Daily Journal" : "Edit Daily Journal",
                 systemImage: "square.and.pencil")
             }.buttonStyle(.bordered)
           }

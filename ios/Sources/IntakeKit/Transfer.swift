@@ -172,7 +172,7 @@ public enum Transfer {
     case .day:
       keys = ["date", "note", "zero", "styles"]
       let day = r.text("date")
-      try text("note", "Day note", max: 10_000, allowEmpty: true)
+      try text("note", "Daily Journal", max: 10_000, allowEmpty: true)
       _ = try DayStyle.spans(in: r)
       guard case .bool = r.data["zero"] else {
         throw Problem.message("Zero day must be true or false.")
