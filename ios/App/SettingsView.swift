@@ -89,8 +89,6 @@ struct SettingsView: View {
   @State private var connecting = false
   @State var register = false
   @State var supportsSignup = false
-  @State var keepLocal = true
-  @State var confirmDelete = false
   @State var importing = false
   @State var exporting = false
   @State var preview: [Record]?
@@ -204,6 +202,17 @@ struct SettingsView: View {
               Label("Setup and sync guide", systemImage: "book")
             }
           }
+          Toggle(isOn: .init(get: { m.state.keepLocalCopy }, set: m.setKeepLocalCopy)) {
+            Text("Keep a local copy")
+            Text("Keep this journal on your iPhone if you delete its server account.").font(
+              .caption)
+          }.disabled(m.state.deletionChoice != nil || m.busy)
+          Toggle(isOn: .init(get: { m.backupEnabled }, set: m.setBackupEnabled)) {
+            Text("Back up to iCloud")
+            Text("Include this iPhone’s journals in device backups when iCloud Backup is on.").font(
+              .caption)
+          }
+          if let account = m.state.binding { ServerDeletionActions(account: account) }
         }
         ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
           Section("Choose the Daily Journal entry for \(day)") {
@@ -302,41 +311,6 @@ struct SettingsView: View {
             }
           }
         }
-        if let b = m.state.binding {
-          Section("Server account") {
-            if let choice = m.state.deletionChoice {
-              Text(
-                "The server’s deletion response was not confirmed. You can finish on this iPhone without sending another request."
-              )
-              Button(
-                choice ? "Disconnect and keep this journal" : "Disconnect and erase this journal",
-                role: choice ? nil : .destructive
-              ) {
-                m.finishOnPhone(keepLocal: choice)
-              }.disabled(m.busy)
-              Button("Stay connected") { m.change { try $0.deletionAttempt(keepLocal: nil) } }
-                .disabled(m.busy)
-            }
-            Toggle("Keep a local copy on this iPhone", isOn: $keepLocal)
-            Button("Delete server account", role: .destructive) { confirmDelete = true }.disabled(
-              !m.signedIn || !m.state.connectionEnabled || m.busy
-            )
-            .confirmationDialog(
-              "Delete \(b.username) on \(b.origin)?", isPresented: $confirmDelete,
-              titleVisibility: .visible
-            ) {
-              Button("Permanently delete server account", role: .destructive) {
-                m.deleteAccount(keepLocal: keepLocal)
-              }
-            } message: {
-              Text(
-                "Deletes the server journal and signs out all devices. "
-                  + (keepLocal
-                    ? "This iPhone keeps a local-only copy."
-                    : "Also erases this journal and unsynced entries on this iPhone."))
-            }
-          }
-        }
       }.navigationTitle("Settings")
         .onAppear {
           timezone = m.state.settings.timezone
@@ -386,5 +360,41 @@ struct SettingsView: View {
     return row.data.keys.sorted().map {
       "\($0): \(row.text($0).isEmpty ? String(describing:row.data[$0]!) : row.text($0))"
     }.joined(separator: "\n")
+  }
+}
+
+private struct ServerDeletionActions: View {
+  let account: IntakeKit.Binding
+  @EnvironmentObject private var m: JournalModel
+  @State private var confirmDelete = false
+  init(account: IntakeKit.Binding) { self.account = account }
+  var body: some View {
+    if let choice = m.state.deletionChoice {
+      Text(
+        "The server’s deletion response was not confirmed. You can finish on this iPhone without sending another request."
+      )
+      Button(
+        choice ? "Disconnect and keep this journal" : "Disconnect and erase this journal",
+        role: choice ? nil : .destructive
+      ) {
+        m.finishOnPhone(keepLocal: choice)
+      }.disabled(m.busy)
+      Button("Stay connected") { m.change { try $0.deletionAttempt(keepLocal: nil) } }
+        .disabled(m.busy)
+    }
+    Button("Delete server account", role: .destructive) { confirmDelete = true }
+      .disabled(!m.signedIn || !m.state.connectionEnabled || m.busy)
+      .confirmationDialog(
+        "Delete \(account.username) on \(account.origin)?",
+        isPresented: $confirmDelete, titleVisibility: .visible
+      ) {
+        Button("Permanently delete server account", role: .destructive) { m.deleteAccount() }
+      } message: {
+        Text(
+          "Deletes the server journal and signs out all devices. "
+            + (m.state.keepLocalCopy
+              ? "This iPhone keeps a local-only copy."
+              : "Also erases this journal and unsynced entries on this iPhone."))
+      }
   }
 }

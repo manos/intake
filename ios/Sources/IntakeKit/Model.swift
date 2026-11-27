@@ -197,6 +197,9 @@ public struct JournalState: Codable {
   public var conflicts: [String: Conflict] = [:], purges: [String] = []
   public var importConflicts: [String: Record] = [:]
   public var deletionChoice: Bool?
+  // Optional for journals created before there was a saved retention preference.
+  var keepAfterAccountDeletion: Bool?
+  public var keepLocalCopy: Bool { keepAfterAccountDeletion ?? true }
   /// Local preference for this journal. Missing in existing snapshots means enabled.
   public fileprivate(set) var connectionPaused: Bool?
   public var connectionEnabled: Bool { binding != nil && connectionPaused != true }

@@ -17,6 +17,8 @@ import SwiftUI
   @Published private(set) var busy = false
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
+  @Published private(set) var backupEnabled = true
+  private let backupPolicy = DeviceBackupPolicy()
   @Published private var presence = ServerPresence()
   var cloudConnected: Bool? {
     guard signedIn, let binding = state.binding else { return nil }
@@ -69,12 +71,28 @@ import SwiftUI
       try fm.createDirectory(
         at: dir, withIntermediateDirectories: true,
         attributes: [.protectionKey: FileProtectionType.complete])
+      try backupPolicy.apply(to: dir)
+      backupEnabled = backupPolicy.enabled
       let url = dir.appendingPathComponent("intake.sqlite3")
       file = url
       journal = try Journal(
         file: url, profile: UserDefaults.standard.string(forKey: "activeJournal") ?? "local")
       try refresh()
       ready = true
+    } catch { message = error.localizedDescription }
+  }
+  func setBackupEnabled(_ enabled: Bool) {
+    guard let file else { return }
+    do {
+      try backupPolicy.setEnabled(enabled, directory: file.deletingLastPathComponent())
+      backupEnabled = enabled
+    } catch { message = error.localizedDescription }
+  }
+  func setKeepLocalCopy(_ enabled: Bool) {
+    guard let journal else { return }
+    do {
+      try journal.setKeepLocalCopy(enabled)
+      try refresh()
     } catch { message = error.localizedDescription }
   }
   private func refresh(rebuildDisplay: Bool = false) throws {
@@ -427,8 +445,9 @@ import SwiftUI
       if let token { try? await Server(b.origin).logout(token: token, account: b.account) }
     }
   }
-  func deleteAccount(keepLocal: Bool) {
+  func deleteAccount() {
     guard state.connectionEnabled, let b = state.binding, let journal else { return }
+    let keepLocal = state.keepLocalCopy
     foregroundWork {
       guard let token = try DeviceSession.load(b.key) else {
         throw Problem.message("Sign in to delete this server account.")

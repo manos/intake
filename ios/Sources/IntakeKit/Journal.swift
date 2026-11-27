@@ -24,6 +24,9 @@ public final class Journal {
     return try JSONDecoder().decode(JournalState.self, from: data)
   }
   public func read() throws -> JournalState { try db.read(load) }
+  public func setKeepLocalCopy(_ enabled: Bool) throws {
+    try change { $0.keepAfterAccountDeletion = enabled }
+  }
   public func rememberRoute(_ binding: Binding) throws {
     try change { s in
       guard binding.key == s.binding?.key else { throw ServerError.wrongAccount }

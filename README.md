@@ -28,7 +28,12 @@ The native client accepts HTTP or HTTPS server addresses, including arbitrary LA
 - **[Nginx Proxy Manager](https://nginxproxymanager.com/)**: create a Proxy Host for your DNS name pointing to the app's reachable private port, select a Let's Encrypt certificate and enable Force SSL. A proxy container's `localhost` means that container, not Intake. Use DNS validation for private-only ingress.
 - **[cert-manager](https://cert-manager.io/docs/usage/ingress/)**: use a production Let's Encrypt ACME issuer on your existing Kubernetes Ingress. Set `spec.tls.hosts` to the public certificate name and a `secretName` for renewal. DNS-01 allows the service itself to stay private.
 
-Connected users can delete their own server account from Settings, including when registration is closed. Confirm the named server and account and choose whether to retain a local-only copy. A server must be online for deletion. Older releases still support sign-in and migration; upgrade the backend to use account deletion or native signup.
+**Settings → Sync** also holds the account and backup controls. Both toggles default to on:
+
+- **Keep a local copy** retains this journal on the iPhone after you confirm **Delete server account**. Turning the toggle off does not erase anything by itself. Sign-out and pausing sync preserve pending changes either way.
+- **Back up to iCloud** makes all Intake journals on this iPhone eligible for the next iOS device backup. Turning it off excludes the journal directory from device backups. iOS controls backup timing and the device-wide iCloud settings.
+
+Connected users can delete their own server account even when registration is closed. A server must be online for deletion. Older releases still support sign-in and migration; upgrade the backend to use account deletion or native signup.
 
 ## Run locally
 
