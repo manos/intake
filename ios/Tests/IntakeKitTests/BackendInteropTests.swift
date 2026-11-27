@@ -157,7 +157,10 @@ final class BackendInteropTests: XCTestCase {
     }
     let first = try j.requestBody(j.batch())
     _ = try await sync(first)  // server commits; the first device never applies the response
+    try j.setConnectionPaused(true, for: binding)
     let restored = try Journal(file: file)
+    XCTAssertTrue(try restored.batch().isEmpty)
+    try restored.setConnectionPaused(false, for: binding)
     let replay = try restored.requestBody(restored.batch())
     XCTAssertEqual(first, replay)
     try restored.accept(await sync(replay))

@@ -4,6 +4,32 @@ import XCTest
 
 final class JournalTests: XCTestCase {
   let binding = Binding(origin: "https://example.com", account: "one", username: "sample")
+  func testDisconnectPersistsAndReconnectReplaysFrozenAndOfflineEdits() throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let j = try Journal(file: file)
+    let rows = try sample()
+    try j.link(binding, remote: [rows[0]], cursor: 7, settings: Settings())
+    try j.put(rows[1])
+    let inflight = try j.batch()
+    let body = try j.requestBody(inflight)
+    try j.setConnectionPaused(true, for: binding)
+    let reopened = try Journal(file: file)
+    XCTAssertFalse(try reopened.read().connectionEnabled)
+    XCTAssertEqual(try reopened.read().binding, binding)
+    var next = rows[1]
+    next.id = UUID().uuidString.lowercased()
+    try reopened.put(next)
+    XCTAssertTrue(try reopened.batch().isEmpty)
+    XCTAssertThrowsError(try reopened.requestBody(inflight))
+    XCTAssertEqual(try reopened.read().pending.count, 2)
+    let other = Binding(origin: binding.origin, account: "two", username: "other")
+    XCTAssertThrowsError(try reopened.setConnectionPaused(false, for: other))
+    try reopened.setConnectionPaused(false, for: binding)
+    XCTAssertEqual(try reopened.requestBody(inflight), body)
+    XCTAssertEqual(try reopened.batch().map(\.record_id), [rows[1].id, next.id])
+    XCTAssertEqual(try reopened.read().cursor, 7)
+  }
   func testJournalDisplayOrdersRepeatedHourAndRegroupsAfterEdits() throws {
     var s = JournalState()
     s.settings = Settings(timezone: "America/New_York", day_start: 2)

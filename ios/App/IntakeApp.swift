@@ -44,8 +44,11 @@ import SwiftUI
         Text(model.message ?? "")
       }
       .onChange(of: phase, initial: true) { _, p in model.lifecycle(p == .active) }
-      .task(id: phase == .active && model.signedIn ? model.state.binding?.key : nil) {
-        guard phase == .active, model.signedIn, model.state.binding != nil else { return }
+      .task(
+        id: phase == .active && model.signedIn && model.state.connectionEnabled
+          ? model.state.binding?.key : nil
+      ) {
+        guard phase == .active, model.signedIn, model.state.connectionEnabled else { return }
         while !Task.isCancelled {
           do { try await Task.sleep(for: .seconds(60)) } catch { return }
           model.refreshIdleConnection()
@@ -65,11 +68,16 @@ func totals(_ summaries: [JournalDisplay.Summary]) -> String {
 }
 private struct ConnectionCloud: View {
   let connected: Bool
+  let toggle: () -> Void
   var body: some View {
-    Image(systemName: connected ? "icloud.fill" : "icloud.slash")
-      .foregroundStyle(connected ? Color.green : Color.secondary)
-      .frame(width: 24, height: 24)
-      .accessibilityLabel(connected ? "Server connected" : "Server disconnected")
+    Button(action: toggle) {
+      Image(systemName: connected ? "icloud.fill" : "icloud.slash")
+        .foregroundStyle(connected ? Color.green : Color.secondary)
+        .frame(width: 44, height: 44).contentShape(Rectangle())
+    }
+    .accessibilityLabel(connected ? "Disconnect from server" : "Connect to server")
+    .accessibilityHint(
+      connected ? "Pause sync and keep logging on this iPhone" : "Resume sync for this journal")
   }
 }
 struct EntryLine: View {
@@ -197,7 +205,10 @@ struct TodayView: View {
       }
       .toolbar {
         if let connected = m.cloudConnected {
-          ToolbarItem(placement: .topBarTrailing) { ConnectionCloud(connected: connected) }
+          ToolbarItem(placement: .topBarTrailing) {
+            ConnectionCloud(connected: connected, toggle: m.toggleConnection).disabled(
+              !m.canToggleConnection)
+          }
         }
       }
       .task(id: successID) {

@@ -28,6 +28,13 @@ public final class Journal {
     try change { s in
       guard binding.key == s.binding?.key else { throw ServerError.wrongAccount }
       s.binding = binding
+      s.pauseConnection(false)
+    }
+  }
+  public func setConnectionPaused(_ paused: Bool, for binding: Binding) throws {
+    try change { s in
+      guard binding.key == s.binding?.key else { throw ServerError.wrongAccount }
+      s.pauseConnection(paused)
     }
   }
   public func scope() throws -> String { profile + "|" + (try read().binding?.key ?? "local") }
@@ -293,6 +300,7 @@ public final class Journal {
   }
   public func batch() throws -> [Operation] {
     try change { s in
+      guard s.connectionEnabled else { return [] }
       var result: [Operation] = []
       var seen = Set<String>()
       var bytes = 128
@@ -318,6 +326,7 @@ public final class Journal {
   }
   public func requestBody(_ batch: [Operation]) throws -> Data {
     let s = try read()
+    guard s.connectionEnabled else { throw Problem.message("Reconnect to sync this journal.") }
     var body = Data("{\"cursor\":\(s.cursor),\"operations\":[".utf8)
     for (i, o) in batch.enumerated() {
       guard let bytes = s.frozen[o.id] else {

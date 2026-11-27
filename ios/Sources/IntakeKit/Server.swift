@@ -61,6 +61,7 @@ public final class Server {
   {
     let client = Server(origin: try ServerRoute.parse(address), configuration: configuration)
     func probe(_ url: URL, method: String) async throws -> (Int, String?) {
+      try Task.checkCancellation()
       var req = URLRequest(url: url)
       req.httpMethod = method
       req.setValue("1", forHTTPHeaderField: "X-Intake-Discover")
@@ -122,6 +123,7 @@ public final class Server {
     var data = Data()
     var response: URLResponse
     repeat {
+      try Task.checkCancellation()
       guard let url = req.url, seen.count < 10, seen.insert(url).inserted else {
         throw Problem.message("The API returned a redirect loop.")
       }

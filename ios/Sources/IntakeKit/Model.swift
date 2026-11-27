@@ -197,6 +197,10 @@ public struct JournalState: Codable {
   public var conflicts: [String: Conflict] = [:], purges: [String] = []
   public var importConflicts: [String: Record] = [:]
   public var deletionChoice: Bool?
+  /// Local preference for this journal. Missing in existing snapshots means enabled.
+  public fileprivate(set) var connectionPaused: Bool?
+  public var connectionEnabled: Bool { binding != nil && connectionPaused != true }
+  mutating func pauseConnection(_ paused: Bool) { connectionPaused = paused ? true : nil }
   public var retryAfter: Date?
   public func maySync(at now: Date) -> Bool { retryAfter.map { $0 <= now } ?? true }
   public var cursor = 0, incomplete = false, customized = false

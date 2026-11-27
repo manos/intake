@@ -140,9 +140,16 @@ struct SettingsView: View {
           if let b = m.state.binding {
             Text(b.username + " · " + b.address).textSelection(.enabled)
             Text(
-              m.syncStatus.isEmpty ? (m.signedIn ? "Connected" : "Sign in to sync") : m.syncStatus)
+              m.signedIn && !m.state.connectionEnabled
+                ? "Disconnected"
+                : m.syncStatus.isEmpty
+                  ? (m.signedIn ? "Connected" : "Sign in to sync") : m.syncStatus)
             if m.signedIn {
-              Button("Sync now") { m.trigger() }.disabled(m.busy)
+              if m.state.connectionEnabled {
+                Button("Sync now") { m.trigger() }.disabled(m.busy)
+              } else {
+                Button("Reconnect") { m.toggleConnection() }.disabled(!m.canToggleConnection)
+              }
               Button("Sign out") { m.signout() }.disabled(m.busy)
             }
           } else if !connecting && m.candidate == nil {
@@ -236,7 +243,7 @@ struct SettingsView: View {
           Stepper("Day starts at \(boundary):00", value: $boundary, in: 0...23)
           Button("Save settings") {
             m.updateSettings(Settings(timezone: timezone, day_start: boundary))
-          }.disabled(m.busy)
+          }.disabled(m.busy || (m.state.binding != nil && !m.state.connectionEnabled))
           if let p = m.state.settingsConflict {
             Text("Server: \(p.timezone), \(p.day_start):00")
             Button("Use server settings") { m.change { try $0.preferences(p) } }
@@ -283,7 +290,7 @@ struct SettingsView: View {
               m.message = error.localizedDescription
             }
           }
-          if m.signedIn {
+          if m.signedIn && m.state.connectionEnabled {
             Button("Export Excel (.xls)") {
               Task {
                 do { try await prepare(m.xls(), "intake.xls") } catch {
@@ -310,7 +317,7 @@ struct SettingsView: View {
             }
             Toggle("Keep a local copy on this iPhone", isOn: $keepLocal)
             Button("Delete server account", role: .destructive) { confirmDelete = true }.disabled(
-              !m.signedIn || m.busy
+              !m.signedIn || !m.state.connectionEnabled || m.busy
             )
             .confirmationDialog(
               "Delete \(b.username) on \(b.origin)?", isPresented: $confirmDelete,

@@ -18,7 +18,9 @@ Use **Settings → Items → Sort items** to drag items into your preferred orde
 
 **Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
 
-Pull down and release on **Today** to reload the local journal and sync when signed in. The upper-right cloud is green when connected, or gray and slashed when disconnected. Automatic sync never inserts a status row. Connection details are in **Settings → Sync**; signed-out and local-only journals show no cloud.
+Pull down and release on **Today** to reload the local journal and sync when the connection is enabled. The upper-right cloud is green when connected, or gray and slashed when disconnected. Automatic sync never inserts a status row. Connection details are in **Settings → Sync**; signed-out and local-only journals show no cloud.
+
+Tap the green cloud to disconnect this journal on this iPhone without signing out. Local changes wait on the device, even after reopening the app. Tap the slashed cloud to reconnect and sync them. If the server is temporarily unreachable, the same button retries the connection.
 
 The native client accepts HTTP or HTTPS server addresses, including arbitrary LAN names and IP addresses with optional ports. A bare hostname starts with HTTP. During setup the app follows redirects before sending credentials. After sign-in and connection, it remembers permanent redirects (301/308); temporary destinations do not replace the address you entered. For example, a LAN alias can redirect to a private HTTPS server with a managed certificate. Set `PUBLIC_ORIGIN` to the external origin your server uses. Three options for automatic certificate renewal:
 

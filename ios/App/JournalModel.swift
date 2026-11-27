@@ -18,7 +18,15 @@ import SwiftUI
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
   @Published private var presence = ServerPresence()
-  var cloudConnected: Bool? { presence.connected(server: state.binding?.key, signedIn: signedIn) }
+  var cloudConnected: Bool? {
+    guard signedIn, let binding = state.binding else { return nil }
+    return state.connectionEnabled
+      && presence.connected(server: binding.key, signedIn: true) == true
+  }
+  var canToggleConnection: Bool {
+    signedIn && state.binding != nil && state.deletionChoice == nil && foregroundTask == nil
+      && !exporting
+  }
   var connectionBadge: ServerPresence.Badge? {
     presence.badge(server: state.binding?.key, signedIn: signedIn)
   }
@@ -37,6 +45,7 @@ import SwiftUI
   private var retry: Task<Void, Never>?, delay = 2
   private var syncTask: Task<Bool, Never>?
   private var foregroundTask: Task<Void, Never>?
+  @Published private var exporting = false
   private var active = true, resync = false
 
   init() {
@@ -198,7 +207,10 @@ import SwiftUI
         binding, remote: rows, cursor: cursor, settings: settings, newAccount: c.signup)
     } else {
       try DeviceSession.set(binding.key, c.token)
-      if try target.read().binding != binding { try target.rememberRoute(binding) }
+      let linked = try target.read()
+      if linked.binding != binding || !linked.connectionEnabled {
+        try target.rememberRoute(binding)
+      }
     }
     journal = target
     UserDefaults.standard.set(target.profile, forKey: "activeJournal")
@@ -208,6 +220,28 @@ import SwiftUI
     resync = true
   }
   private var approvedPopulatedLink = false
+  func toggleConnection() {
+    guard canToggleConnection, let b = state.binding, let journal else { return }
+    do {
+      if cloudConnected == true {
+        try journal.setConnectionPaused(true, for: b)
+        retry?.cancel()
+        resync = false
+        syncTask?.cancel()
+        presence.invalidate()
+        syncStatus = "Disconnected"
+        try refresh()
+      } else {
+        if !state.connectionEnabled {
+          try journal.setConnectionPaused(false, for: b)
+          try refresh()
+        }
+        // A gray cloud can also mean the server is unreachable. Tapping it
+        // retries the connection, respecting the server's cooldown.
+        if syncTask == nil || syncTask?.isCancelled == true { trigger() }
+      }
+    } catch { message = error.localizedDescription }
+  }
   func approveMerge() {
     guard !busy, let c = candidate else { return }
     candidate = nil
@@ -229,6 +263,7 @@ import SwiftUI
       return false
     }
     defer { updateToday() }
+    guard state.connectionEnabled else { return false }
     if let foregroundTask { await foregroundTask.value }
     guard requestedScope == scope, !Task.isCancelled else { return false }
     guard let task = syncTask ?? trigger() else { return false }
@@ -236,7 +271,8 @@ import SwiftUI
     return completed && requestedScope == scope && !Task.isCancelled
   }
   @discardableResult func trigger() -> Task<Bool, Never>? {
-    guard active, signedIn, candidate == nil, state.deletionChoice == nil, let journal,
+    guard active, signedIn, state.connectionEnabled, candidate == nil, state.deletionChoice == nil,
+      let journal,
       let b = state.binding
     else { return nil }
     if !state.maySync(at: .now), let until = state.retryAfter {
@@ -255,11 +291,13 @@ import SwiftUI
       var completed = false
       var reload = false
       do {
+        try Task.checkCancellation()
         guard let token = try DeviceSession.load(b.key) else {
           throw ServerError.response(401, nil)
         }
         let server = try await Server.resume(b)
         let profile = try await server.me(token, account: b.account)
+        try Task.checkCancellation()
         presence.report(server: b.key, generation: generation, reachable: true)
         if state.settingsConflict == nil && state.settings != profile.settings {
           try journal.preferences(profile.settings)
@@ -268,6 +306,7 @@ import SwiftUI
         syncStatus = "Syncing…"
         var firstPage = true
         while active {
+          try Task.checkCancellation()
           // A caught-up phone only needs an empty pull. Avoid decoding and
           // rewriting its entire SQLite snapshot for a heartbeat with no changes.
           let emptyPull = firstPage && state.caughtUp
@@ -275,6 +314,7 @@ import SwiftUI
           let old = emptyPull ? state : try journal.read()
           if let id = old.purges.first {
             try await server.deleteItem(id, token: token, account: b.account)
+            try Task.checkCancellation()
             try journal.acknowledgePurge(id)
             reload = true
             continue
@@ -286,6 +326,7 @@ import SwiftUI
               ? Data("{\"operations\":[],\"cursor\":\(old.cursor)}".utf8)
               : try journal.requestBody(ops)
             let page = try await server.pull(body, token: token, account: b.account)
+            try Task.checkCancellation()
             guard Set(page.results.map(\.id)) == Set(ops.map(\.id)),
               !page.has_more || page.cursor > old.cursor
             else { throw ServerError.invalid }
@@ -304,7 +345,9 @@ import SwiftUI
               break
             }
           } catch ServerError.cursorReset {
+            try Task.checkCancellation()
             let (rows, cursor) = try await server.snapshot(token: token, account: b.account)
+            try Task.checkCancellation()
             try journal.link(
               b, remote: rows, cursor: cursor, settings: profile.settings, recovering: true)
             reload = true
@@ -317,6 +360,8 @@ import SwiftUI
         completed = completed && !state.incomplete
         syncStatus = completed ? "Synced" : "Sync incomplete"
         delay = 2
+      } catch  where Task.isCancelled {
+        completed = false
       } catch ServerError.response(401, _), ServerError.wrongAccount {
         completed = false
         try? DeviceSession.set(b.key, nil)
@@ -339,11 +384,11 @@ import SwiftUI
           delay = min(120, delay * 2)
         }
       }
-      if active { presence.finishedSync(server: b.key, succeeded: completed) }
+      if active && !Task.isCancelled { presence.finishedSync(server: b.key, succeeded: completed) }
       syncTask = nil
       busy = false
       if reload { try? refresh() }
-      if let wait, active {
+      if let wait, active, state.connectionEnabled {
         resync = false
         scheduleRetry(Double(wait))
       } else if resync {
@@ -358,7 +403,8 @@ import SwiftUI
   /// Refresh the idle connection while the app is active.
   /// Failed connections already use the sync worker's retry schedule.
   func refreshIdleConnection() {
-    if active, !busy, connectionBadge == .connected || connectionBadge == .syncFailed,
+    if active, !busy, state.connectionEnabled,
+      connectionBadge == .connected || connectionBadge == .syncFailed,
       syncStatus == "Synced" || syncStatus == "Sync incomplete"
     {
       trigger()
@@ -382,7 +428,7 @@ import SwiftUI
     }
   }
   func deleteAccount(keepLocal: Bool) {
-    guard let b = state.binding, let journal else { return }
+    guard state.connectionEnabled, let b = state.binding, let journal else { return }
     foregroundWork {
       guard let token = try DeviceSession.load(b.key) else {
         throw Problem.message("Sign in to delete this server account.")
@@ -413,6 +459,10 @@ import SwiftUI
   func updateSettings(_ p: Settings) {
     guard let journal else { return }
     if let b = state.binding {
+      guard state.connectionEnabled else {
+        message = "Reconnect to update server settings."
+        return
+      }
       foregroundWork {
         guard let token = try DeviceSession.load(b.key) else {
           throw Problem.message("Sign in to update this account's settings.")
@@ -425,9 +475,13 @@ import SwiftUI
     }
   }
   func xls() async throws -> Data {
-    guard let b = state.binding, let token = try DeviceSession.load(b.key) else {
+    guard state.connectionEnabled, let b = state.binding, let token = try DeviceSession.load(b.key)
+    else {
       throw Problem.message("Connect to a server for Excel export.")
     }
+    guard !exporting else { throw Problem.message("An export is already in progress.") }
+    exporting = true
+    defer { exporting = false }
     return try await Server.resume(b).spreadsheet(
       Transfer.export(state), token: token, account: b.account)
   }
