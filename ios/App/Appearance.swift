@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -29,8 +30,9 @@ extension EnvironmentValues {
   }
 }
 struct AppearancePreferences: DynamicProperty {
+  static let surfaceKey = "appearance.surface"
   @AppStorage("appearance.background") var background = ""
-  @AppStorage("appearance.surface") var surface = ""
+  @AppStorage(Self.surfaceKey) var surface = ""
   @AppStorage("appearance.text") var text = ""
   @AppStorage("appearance.customAccent") var accent = ""
   var palette: JournalPalette {
@@ -38,11 +40,32 @@ struct AppearancePreferences: DynamicProperty {
   }
 }
 
+// List and Form can retain the first custom background for a visible row.
+// Repaint that same view so the color picker, focus, and scroll position survive.
+private struct JournalRowBackground: UIViewRepresentable {
+  final class Coordinator { var updates: AnyCancellable? }
+  func makeCoordinator() -> Coordinator { Coordinator() }
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView()
+    view.isUserInteractionEnabled = false
+    let defaults = UserDefaults.standard
+    func surface() -> String { defaults.string(forKey: AppearancePreferences.surfaceKey) ?? "" }
+    context.coordinator.updates = NotificationCenter.default
+      .publisher(for: UserDefaults.didChangeNotification, object: defaults)
+      .receive(on: DispatchQueue.main)
+      .map { _ in surface() }.prepend(surface()).removeDuplicates()
+      .map { JournalPalette.color($0).map(UIColor.init) }
+      .assign(to: \.backgroundColor, on: view)
+    return view
+  }
+  func updateUIView(_ view: UIView, context: Context) {}
+}
+
 struct JournalList<Content: View>: View {
   @Environment(\.journalPalette) private var palette
   @ViewBuilder var content: Content
   var body: some View {
-    List { content.listRowBackground(JournalPalette.color(palette.surface)) }
+    List { content.listRowBackground(palette.surface.isEmpty ? nil : JournalRowBackground()) }
       .scrollContentBackground(palette.background.isEmpty ? .automatic : .hidden)
       .background(JournalPalette.color(palette.background) ?? .clear)
   }
@@ -51,7 +74,7 @@ struct JournalForm<Content: View>: View {
   @Environment(\.journalPalette) private var palette
   @ViewBuilder var content: Content
   var body: some View {
-    Form { content.listRowBackground(JournalPalette.color(palette.surface)) }
+    Form { content.listRowBackground(palette.surface.isEmpty ? nil : JournalRowBackground()) }
       .scrollContentBackground(palette.background.isEmpty ? .automatic : .hidden)
       .background(JournalPalette.color(palette.background) ?? .clear)
   }
