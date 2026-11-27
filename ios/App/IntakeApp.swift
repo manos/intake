@@ -382,61 +382,94 @@ struct ItemEditor: View {
   var body: some View {
     NavigationStack {
       JournalForm {
-        TextField("Name", text: field("name"))
-        TextField("Unit", text: field("unit"))
-        TextField("Default amount", text: field("amount")).keyboardType(.decimalPad)
-        TextField("Amount presets, comma separated", text: $presets)
-        HStack {
-          Circle().fill(itemColor(row)).frame(width: 20, height: 20)
-          TextField("Color (#RRGGBB)", text: field("color")).textInputAutocapitalization(.never)
+        Section("Details") {
+          labeledField("Item name", prompt: "Enter a name", text: field("name"))
+          labeledField("Units", prompt: "e.g. mL or tablets", text: field("unit"))
+            .textInputAutocapitalization(.never)
+        }
+        Section {
+          labeledField(
+            "Default amount", prompt: "Enter an amount", text: field("amount"),
+            units: row.text("unit")
+          )
+          .keyboardType(.decimalPad)
+          labeledField(
+            "Quick-log presets", prompt: "e.g. 1, 2, 3", text: $presets, units: row.text("unit")
+          )
+          .keyboardType(.numbersAndPunctuation)
+        } header: {
+          Text("Quick logging")
+        } footer: {
+          Text(
+            "Tapping the item logs the default amount. Separate preset amounts with commas to add quick-log buttons."
+          )
+        }
+        Section("Appearance") {
           ColorPicker(
-            "Choose color",
+            "Item color",
             selection: .init(
               get: { itemColor(row) },
               set: { color in
-                var r: CGFloat = 0
-                var g: CGFloat = 0
-                var b: CGFloat = 0
-                var a: CGFloat = 0
-                if UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) {
-                  row.data["color"] = .string(
-                    String(
-                      format: "#%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()),
-                      Int((b * 255).rounded())))
-                }
+                if let hex = JournalPalette.hex(color) { row.data["color"] = .string("#" + hex) }
               }), supportsOpacity: false
-          ).labelsHidden()
+          )
+          labeledField("Hex color", prompt: "#RRGGBB", text: field("color"))
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
         }
-        Toggle(
-          "Archived",
-          isOn: .init(
-            get: { row.data["archived"] == .bool(true) }, set: { row.data["archived"] = .bool($0) })
-        )
-        if m.state.records[row.id] != nil {
-          Button("Permanently delete item", role: .destructive) { confirm = true }
-        }
-      }.navigationTitle("Item").toolbar {
-        Button("Save") {
-          row.data["presets"] = .array(
-            presets.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) })
-          if m.state.records[row.id] == nil {
-            row.data["order"] = .number(
-              Decimal(min(1_000_000, (Int(m.display.items.last?.text("order") ?? "") ?? -1) + 1)))
+        Section {
+          Toggle(
+            "Archived",
+            isOn: .init(
+              get: { row.data["archived"] == .bool(true) },
+              set: { row.data["archived"] = .bool($0) })
+          )
+          if m.state.records[row.id] != nil {
+            Button("Permanently delete item", role: .destructive) { confirm = true }
           }
-          if m.change({ try $0.put(row) }) { dismiss() }
         }
-        Button("Cancel") { dismiss() }
-      }
-      .confirmationDialog(
-        "Permanently delete this item and all its entries?", isPresented: $confirm,
-        titleVisibility: .visible
-      ) {
-        Button("Delete item and entries", role: .destructive) {
-          m.purge(row.id)
-          dismiss()
+      }.navigationTitle(m.state.records[row.id] == nil ? "Add item" : "Edit item")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Save") {
+              row.data["presets"] = .array(
+                presets.split(separator: ",").map {
+                  .string($0.trimmingCharacters(in: .whitespaces))
+                })
+              if m.state.records[row.id] == nil {
+                row.data["order"] = .number(
+                  Decimal(
+                    min(1_000_000, (Int(m.display.items.last?.text("order") ?? "") ?? -1) + 1)))
+              }
+              if m.change({ try $0.put(row) }) { dismiss() }
+            }
+          }
+          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
         }
-      }
+        .confirmationDialog(
+          "Permanently delete this item and all its entries?", isPresented: $confirm,
+          titleVisibility: .visible
+        ) {
+          Button("Delete item and entries", role: .destructive) {
+            m.purge(row.id)
+            dismiss()
+          }
+        }
     }
+  }
+  private func labeledField(
+    _ title: String, prompt: String, text: SwiftUI.Binding<String>, units: String = ""
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(title).font(.subheadline.weight(.semibold)).accessibilityHidden(true)
+      HStack(alignment: .firstTextBaseline) {
+        TextField(title, text: text, prompt: Text(prompt))
+          .accessibilityLabel(units.isEmpty ? title : "\(title) in \(units)")
+        if !units.isEmpty {
+          Text(units).font(.subheadline).foregroundStyle(.secondary).accessibilityHidden(true)
+        }
+      }
+    }.padding(.vertical, 2)
   }
   func field(_ k: String) -> SwiftUI.Binding<String> {
     .init(get: { row.text(k) }, set: { row.data[k] = .string($0) })
