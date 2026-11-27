@@ -80,6 +80,7 @@ struct SettingsView: View {
     string: "https://github.com/manos/intake/blob/main/README.md#native-iphone-app")!
   @SwiftUI.Binding var accent: AppAccent
   private var appearance = AppearancePreferences()
+  init(accent: SwiftUI.Binding<AppAccent>) { _accent = accent }
   @EnvironmentObject var m: JournalModel
   @State var address = ""
   @State var name = ""

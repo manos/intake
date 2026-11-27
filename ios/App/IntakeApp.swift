@@ -6,17 +6,25 @@ import SwiftUI
   @AppStorage("appearance.accent") private var accent: AppAccent = .purple
   private var appearance = AppearancePreferences()
   @Environment(\.scenePhase) private var phase
+  private var showingMessage: SwiftUI.Binding<Bool> {
+    SwiftUI.Binding(
+      get: { model.message != nil },
+      set: { visible in if !visible { model.message = nil } })
+  }
+  private var mainTabs: some View {
+    TabView {
+      TodayView().tabItem { Label("Today", systemImage: "clock") }
+      DailyJournalView(today: JournalTime.day(.now, settings: model.state.settings))
+        .tabItem { Label("Journal", systemImage: "book.pages") }
+      HistoryView().tabItem { Label("History", systemImage: "calendar") }
+      SettingsView(accent: $accent).tabItem { Label("Settings", systemImage: "gearshape") }
+    }.id(model.scope)
+  }
   var body: some Scene {
     WindowGroup {
       Group {
         if model.ready {
-          TabView {
-            TodayView().tabItem { Label("Today", systemImage: "clock") }
-            DailyJournalView(today: JournalTime.day(.now, settings: model.state.settings))
-              .tabItem { Label("Journal", systemImage: "book.pages") }
-            HistoryView().tabItem { Label("History", systemImage: "calendar") }
-            SettingsView(accent: $accent).tabItem { Label("Settings", systemImage: "gearshape") }
-          }.id(model.scope)
+          mainTabs
         } else {
           ContentUnavailableView {
             Label("Journal unavailable", systemImage: "lock")
@@ -30,10 +38,7 @@ import SwiftUI
       .environmentObject(model).environment(\.journalPalette, appearance.palette)
       .foregroundColor(JournalPalette.color(appearance.text))
       .tint(JournalPalette.color(appearance.accent) ?? accent.color)
-      .alert(
-        "Intake",
-        isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })
-      ) {
+      .alert("Intake", isPresented: showingMessage) {
         Button("OK") { model.message = nil }
       } message: {
         Text(model.message ?? "")

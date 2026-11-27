@@ -60,6 +60,7 @@ struct JournalForm<Content: View>: View {
 struct ThemeColorControls: View {
   @Binding var preset: AppAccent
   private var preferences = AppearancePreferences()
+  init(preset: Binding<AppAccent>) { _preset = preset }
   private func selection(_ hex: Binding<String>, default color: Color) -> Binding<Color> {
     Binding(
       get: { JournalPalette.color(hex.wrappedValue) ?? color },
