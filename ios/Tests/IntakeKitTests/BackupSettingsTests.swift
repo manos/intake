@@ -4,16 +4,41 @@ import XCTest
 @testable import IntakeKit
 
 final class BackupSettingsTests: XCTestCase {
+  func testJournalRetainsItsOwnOptOutWhenParentBecomesEligibleAgain() throws {
+    let fm = FileManager.default
+    let support = try fm.url(
+      for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    var parent = support.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let child = parent.appendingPathComponent("Journal", isDirectory: true)
+    try fm.createDirectory(at: child, withIntermediateDirectories: true)
+    let name = UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+    defer {
+      try? fm.removeItem(at: parent)
+      defaults.removePersistentDomain(forName: name)
+    }
+    var inherited = URLResourceValues()
+    inherited.isExcludedFromBackup = true
+    try parent.setResourceValues(inherited)
+    try DeviceBackupPolicy(defaults: defaults).setEnabled(false, directory: child)
+    inherited.isExcludedFromBackup = false
+    try parent.setResourceValues(inherited)
+    let fresh = URL(fileURLWithPath: child.path, isDirectory: true)
+    XCTAssertEqual(
+      try fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+  }
   func testDeviceBackupPreferenceAppliesToTheJournalDirectoryAndSurvivesReopening() throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-      UUID().uuidString, isDirectory: true)
+    let fm = FileManager.default
+    let support = try fm.url(
+      for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    let fixture = support.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let root = fixture.appendingPathComponent("Journal", isDirectory: true)
     let name = "intake.test." + UUID().uuidString
     let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
     defer {
       defaults.removePersistentDomain(forName: name)
-      try? FileManager.default.removeItem(at: root)
+      try? fm.removeItem(at: fixture)
     }
-    let fm = FileManager.default
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
     let journal = try Journal(file: root.appendingPathComponent("intake.sqlite3"))
     let row = Record(
@@ -23,21 +48,24 @@ final class BackupSettingsTests: XCTestCase {
     let policy = DeviceBackupPolicy(defaults: defaults)
     XCTAssertTrue(policy.enabled)
     func excluded(_ folder: URL) throws -> Bool {
-      var url = folder
-      url.removeAllCachedResourceValues()
+      let url = URL(fileURLWithPath: folder.path, isDirectory: true)
       return try url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup
         == true
     }
+    let reference = fixture.appendingPathComponent("Reference", isDirectory: true)
+    try fm.createDirectory(at: reference, withIntermediateDirectories: true)
     try policy.setEnabled(false, directory: root)
     XCTAssertTrue(try excluded(root))
     let reopened = DeviceBackupPolicy(defaults: defaults)
     XCTAssertFalse(reopened.enabled)
-    let replacement = root.appendingPathComponent("replacement", isDirectory: true)
+    let replacement = fixture.appendingPathComponent("replacement", isDirectory: true)
     try fm.createDirectory(at: replacement, withIntermediateDirectories: true)
     try reopened.apply(to: replacement)
     XCTAssertTrue(try excluded(replacement))
     try reopened.setEnabled(true, directory: root)
-    XCTAssertFalse(try excluded(root))
+    // Enabling backup removes our exclusion, not an OS-level exclusion
+    // inherited from the test host. Compare with an untouched sibling.
+    XCTAssertEqual(try excluded(root), try excluded(reference))
     XCTAssertTrue(policy.enabled)
     XCTAssertEqual(try journal.read().records[row.id], row)
     XCTAssertThrowsError(

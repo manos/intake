@@ -19,16 +19,14 @@ public struct DeviceBackupPolicy {
   }
 
   private func apply(_ enabled: Bool, to directory: URL) throws {
-    var folder = directory
-    folder.removeAllCachedResourceValues()
-    let existing = try folder.resourceValues(forKeys: [.isDirectoryKey, .isExcludedFromBackupKey])
-    guard existing.isDirectory == true else {
+    var folder = URL(fileURLWithPath: directory.path, isDirectory: true)
+    guard try folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
       throw Problem.message("Journal storage is unavailable.")
     }
-    if (existing.isExcludedFromBackup ?? false) != !enabled {
-      var values = URLResourceValues()
-      values.isExcludedFromBackup = !enabled
-      try folder.setResourceValues(values)
-    }
+    // A read can reflect a parent directory's exclusion. Always set this
+    // journal's own flag so its preference also holds if the parent changes.
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = !enabled
+    try folder.setResourceValues(values)
   }
 }
