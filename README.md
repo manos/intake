@@ -6,6 +6,8 @@ Intake starts empty. Add your own names, colors, quantities and units. No accoun
 
 ## Native iPhone app
 
+[Intake Journal Privacy Policy](PRIVACY.md)
+
 Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or later. For a device install, use your development signing team. The app opens to an empty local journal without a server account. Its SQLite journal lives in Application Support and is eligible for ordinary iCloud **device backup** when enabled for Intake. This is full-device recovery, not live iCloud sync. Device-only server credentials do not migrate.
 
 On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
