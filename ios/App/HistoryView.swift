@@ -60,23 +60,25 @@ struct HistoryView: View {
     r.filter { filter.isEmpty || $0.text("item_id") == filter }
   }
   func points(_ buckets: [String: [Record]], days: [String]) -> [Point] {
-    days.flatMap { day in
-      Dictionary(grouping: filtered(buckets[day] ?? [])) { e in
-        e.text("item_id") + "|" + e.text("unit")
-      }.values.map { entries in
-        let e = entries[0]
-        let value = entries.reduce(0.0) {
-          $0 + (amountChart ? Double($1.text("quantity")) ?? 0 : 1)
-        }
+    let result = days.flatMap { day in
+      m.display.summaries(filtered(buckets[day] ?? [])).map { summary in
+        let e = summary.entry
+        let value =
+          amountChart
+          ? NSDecimalNumber(decimal: summary.quantity).doubleValue : Double(summary.count)
         return Point(
           day: day, series: e.text("item_name") + " (" + e.text("unit") + ")", value: value,
           itemID: e.text("item_id"))
       }
     }
+    return result.sorted { a, b in
+      if a.itemID != b.itemID { return m.display.precedes(a.itemID, b.itemID) }
+      return (a.series, a.day) < (b.series, b.day)
+    }
   }
   var body: some View {
     NavigationStack {
-      List {
+      JournalList {
         let buckets = m.display.entriesByDay
         let days = self.days
         Section {
@@ -119,7 +121,7 @@ struct HistoryView: View {
               )
               .position(by: .value("Item and unit", p.series)).foregroundStyle(
                 by: .value("Item and unit", p.series))
-            }.frame(height: 160)
+            }.chartXScale(domain: days).frame(height: 160)
               .chartXSelection(value: $chartDay)
               .onChange(of: chartDay) { _, d in
                 if let d {
@@ -159,10 +161,10 @@ struct HistoryView: View {
           let grouped = Dictionary(grouping: days.flatMap { filtered(buckets[$0] ?? []) }) {
             $0.text("item_id")
           }
-          ForEach(grouped.keys.sorted(), id: \.self) { id in
+          ForEach(grouped.keys.sorted(by: m.display.precedes), id: \.self) { id in
             let rows = grouped[id] ?? []
             Section(rows.first?.text("item_name") ?? "") {
-              Text(totals(rows))
+              Text(totals(m.display.summaries(rows)))
               Text(
                 "\(rows.count) entries · \(days.filter { buckets[$0]?.contains { $0.text("item_id") == id } == true }.count) recorded days"
               )
@@ -173,7 +175,7 @@ struct HistoryView: View {
                 Button {
                   selected = row
                 } label: {
-                  EntryLine(row: row)
+                  EntryLine(row: row, timezone: m.state.settings.timezone)
                 }
               }
             }
@@ -198,7 +200,7 @@ struct HistoryView: View {
                   Button {
                     selected = r
                   } label: {
-                    EntryLine(row: r)
+                    EntryLine(row: r, timezone: m.state.settings.timezone)
                   }
                 }
               }
@@ -210,12 +212,12 @@ struct HistoryView: View {
       }.navigationTitle("History").sheet(item: $selected) { EntryEditor(row: $0) }
         .sheet(item: $selectedDay) { d in
           NavigationStack {
-            List {
+            JournalList {
               ForEach(filtered(m.display.entriesByDay[d.id] ?? [])) { row in
                 NavigationLink {
                   EntryEditor(row: row)
                 } label: {
-                  EntryLine(row: row)
+                  EntryLine(row: row, timezone: m.state.settings.timezone)
                 }
               }
               NavigationLink("Daily Journal") { DayEditor(day: d.id) }

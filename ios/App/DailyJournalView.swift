@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DailyJournalView: View {
   @EnvironmentObject private var model: JournalModel
+  @Environment(\.journalPalette) private var palette
   @State private var selected: String
   @State private var anchor: String
   @State private var editing: PageDate?
@@ -61,6 +62,7 @@ struct DailyJournalView: View {
           }
         }.tabViewStyle(.page(indexDisplayMode: .never))
       }
+      .background(JournalPalette.color(palette.background) ?? .clear)
       .navigationTitle("Journal")
       .toolbar {
         Button("Today") { jump(JournalTime.day(.now, settings: model.state.settings)) }
@@ -95,14 +97,11 @@ struct DailyJournalView: View {
 
 private struct JournalPage: View {
   @EnvironmentObject var model: JournalModel
+  @Environment(\.journalPalette) private var palette
   let day: String, edit: () -> Void
-  private struct IntakeGroup: Hashable { let item: String, unit: String }
   var body: some View {
     let notes = model.display.notesByDay[day] ?? []
     let entries = model.display.entriesByDay[day] ?? []
-    let groups = Dictionary(grouping: entries) {
-      IntakeGroup(item: $0.text("item_id"), unit: $0.text("unit"))
-    }
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,27 +131,16 @@ private struct JournalPage: View {
             )
             .font(.subheadline).foregroundStyle(.secondary)
           }
-          ForEach(
-            groups.keys.sorted { a, b in
-              let x = groups[a]?.first?.text("item_name") ?? ""
-              let y = groups[b]?.first?.text("item_name") ?? ""
-              return (x, a.unit, a.item) < (y, b.unit, b.item)
-            }, id: \.self
-          ) { key in
-            if let rows = groups[key], let entry = rows.first {
-              let sum = rows.reduce(Decimal.zero) {
-                $0 + (JournalTime.decimal($1.text("quantity")) ?? 0)
-              }
-              HStack {
-                Circle().fill(itemColor(entry)).frame(width: 9, height: 9)
-                Text(entry.text("item_name"))
-                Spacer()
-                Text("\(NSDecimalNumber(decimal:sum).stringValue) \(key.unit)").monospacedDigit()
-              }.font(.subheadline).accessibilityElement(children: .combine)
-            }
+          ForEach(model.display.summaries(entries)) { summary in
+            HStack {
+              Circle().fill(itemColor(summary.entry)).frame(width: 9, height: 9)
+              Text(summary.entry.text("item_name"))
+              Spacer()
+              Text(summary.amountText).monospacedDigit()
+            }.font(.subheadline).accessibilityElement(children: .combine)
           }
         }
       }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-    }
+    }.background(JournalPalette.color(palette.background) ?? .clear)
   }
 }

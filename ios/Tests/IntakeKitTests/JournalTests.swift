@@ -21,12 +21,63 @@ final class JournalTests: XCTestCase {
     for row in [item, tied, early, late] { s.records[row.id] = row }
     let old = JournalDisplay(s)
     XCTAssertEqual(old.entriesByDay["2026-10-31"]?.map(\.id), ["b", "c", "a"])
-    XCTAssertEqual(old.latestByItem[item.id], JournalTime.instant(late.text("occurred_at")))
+    XCTAssertEqual(
+      old.day("2026-10-31").lastTaken[item.id], JournalTime.instant(late.text("occurred_at")))
+    XCTAssertNil(old.day("2026-11-01").lastTaken[item.id])
     s.records[late.id]?.deleted = true
     s.settings.day_start = 0
     let new = JournalDisplay(s)
     XCTAssertNil(new.entriesByDay["2026-10-31"])
     XCTAssertEqual(new.entriesByDay["2026-11-01"]?.map(\.id), ["c", "a"])
+  }
+  func testTodayRollsOverWithoutDeletingHistoryOrOfflineWork() throws {
+    let j = try Journal()
+    let rows = try sample()
+    let settings = Settings(timezone: "America/New_York", day_start: 4)
+    try j.link(binding, remote: [rows[0]], cursor: 1, settings: settings)
+    var e = rows[1]
+    e.data["occurred_at"] = .string("2026-11-01T03:59:59-05:00")
+    try j.put(e)
+    let s = try j.read()
+    let display = JournalDisplay(s)
+    func day(_ stamp: String) throws -> JournalDisplay.Day {
+      display.day(JournalTime.day(try XCTUnwrap(JournalTime.instant(stamp)), settings: settings))
+    }
+    XCTAssertEqual(try day("2026-11-01T03:59:59-05:00").entries.map(\.id), [e.id])
+    let current = try day("2026-11-01T04:00:00-05:00")
+    XCTAssertTrue(current.lastTaken.isEmpty)
+    XCTAssertTrue(current.entries.isEmpty)
+    XCTAssertEqual(try j.read().pending.count, 1)
+    XCTAssertEqual(display.entriesByDay["2026-10-31"]?.count, 1)
+  }
+
+  func testItemOrderSurvivesReopenAndControlsSummariesWithoutReorderingTimes() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let j = try Journal(file: url)
+    var a = try sample()[0]
+    var z = a
+    a.data["name"] = .string("A")
+    a.data["order"] = .number(0)
+    z.id = UUID().uuidString
+    z.data["name"] = .string("Z")
+    z.data["order"] = .number(1)
+    try j.link(binding, remote: [a, z], cursor: 2, settings: Settings(timezone: "UTC"))
+    let time = Date(timeIntervalSince1970: 1_790_000_000)
+    let first = z.entry(settings: Settings(timezone: "UTC"), at: time)
+    let second = a.entry(settings: Settings(timezone: "UTC"), at: time.addingTimeInterval(1))
+    try j.put(first)
+    try j.put(second)
+    XCTAssertThrowsError(try j.reorderItems([z.id, z.id]))
+    try j.reorderItems([z.id, a.id])
+    let saved = try Journal(file: url).read()
+    let display = JournalDisplay(saved)
+    XCTAssertEqual(display.activeItems.map(\.id), [z.id, a.id])
+    let entries = display.day(JournalTime.day(time, settings: saved.settings)).entries
+    XCTAssertEqual(entries.map(\.id), [second.id, first.id])
+    XCTAssertEqual(display.summaries(entries).map(\.itemID), [z.id, a.id])
+    XCTAssertEqual(
+      Set(saved.pending.filter { $0.entity == .item }.map(\.record_id)), Set([z.id, a.id]))
   }
   func testFailedSyncStaysVisibleUntilTheWholeSyncSucceeds() {
     var presence = ServerPresence()

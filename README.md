@@ -10,13 +10,15 @@ Open `ios/Intake.xcodeproj` in Xcode, select **Intake** and build for iOS 17 or 
 
 On **Today**, tap an item to log its default amount, or tap a dosage button for a preset. The first presets that fit appear beside the item. The **…** menu always has the full list.
 
-Daily totals appear just below **Edit Daily Journal**, before the first intake entry. Connection status and sync feedback scroll with the list. Choose an app accent in **Settings → Appearance → Accent color**; individual item colors stay as you set them.
+Daily totals appear just below **Edit Daily Journal**, before the first intake entry. Last-taken times, entries, and totals follow the current journal day, using your chosen timezone and day-start hour. Opening Today or pulling down updates that day, including offline.
+
+Use **Settings → Items → Sort items** to drag items into your preferred order, then tap **Done**. Today, Journal summaries, and History item groups use that same order; individual logs stay chronological. Changes sync with your account. In **Settings → Appearance**, choose the accent, background, row background, text color, or Home Screen icon. **Reset colors** restores the default palette without changing your item colors.
 
 **Journal** opens to the current journal day. Swipe between pages, use the arrows, or tap the date to jump. Each page shows the Daily Journal above a compact intake summary, with separate totals for each item and unit. Tap **Write Daily Journal** or **Edit Daily Journal** to open the editor. In the **Aa** formatting menu, choose **Bold**, **Body**, or **Heading** for selected text or the next text you type. Tap **Save** to keep the page offline and sync it when connected. Today and History open the same Daily Journal. Individual intake notes remain plain text.
 
 **Existing user?** Open **Settings → Sync → Connect to server** and enter your Intake credentials. A fresh phone downloads your existing journal and settings. If you already logged things on the phone, choose **Sync this journal** to merge both histories. Only conflicting records need a choice. Browser edits that never synced can be exported as JSON and imported on the phone. Record IDs and original entry times survive migration.
 
-Once connected, pull down and release on **Today** to sync. A spinner follows the sync, then **Success!** appears briefly. **Sync failed** means the sync did not finish; the status below the badge gives details. A local-only journal shows no connection badge or sign-in prompt.
+Pull down and release on **Today** to reload the local journal and sync when signed in. The upper-right cloud is green when connected, or gray and slashed when disconnected. Automatic sync never inserts a status row. Connection details are in **Settings → Sync**; signed-out and local-only journals show no cloud.
 
 The native client accepts HTTP or HTTPS server addresses, including arbitrary LAN names and IP addresses with optional ports. A bare hostname starts with HTTP. During setup the app follows redirects before sending credentials. After sign-in and connection, it remembers permanent redirects (301/308); temporary destinations do not replace the address you entered. For example, a LAN alias can redirect to a private HTTPS server with a managed certificate. Set `PUBLIC_ORIGIN` to the external origin your server uses. Three options for automatic certificate renewal:
 

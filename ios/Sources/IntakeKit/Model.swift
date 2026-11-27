@@ -239,18 +239,57 @@ public struct JournalDisplay {
   public let notesByDay: [String: [Record]]
   public let competingDays: [String: [Record]]
   public private(set) var entriesByDay: [String: [Record]] = [:]
-  public private(set) var latestByItem: [String: Date] = [:]
+  private var latestByDay: [String: [String: Date]] = [:]
+  private let itemRank: [String: Int]
+
+  public struct Day {
+    public let entries: [Record], lastTaken: [String: Date], journal: Record?
+  }
+  public func day(_ key: String) -> Day {
+    Day(
+      entries: entriesByDay[key] ?? [], lastTaken: latestByDay[key] ?? [:],
+      journal: notesByDay[key]?.first)
+  }
+
+  public struct Summary: Identifiable {
+    public struct ID: Hashable { let item: String, unit: String }
+    public let id: ID, entry: Record
+    public var itemID: String { id.item }
+    public var unit: String { id.unit }
+    public var quantity = Decimal.zero
+    public var count = 0
+    public var amountText: String { "\(NSDecimalNumber(decimal:quantity).stringValue) \(unit)" }
+  }
+  public func precedes(_ a: String, _ b: String) -> Bool {
+    (itemRank[a] ?? Int.max, a) < (itemRank[b] ?? Int.max, b)
+  }
+  public func summaries(_ entries: [Record]) -> [Summary] {
+    var grouped: [Summary.ID: Summary] = [:]
+    for entry in entries {
+      let id = Summary.ID(item: entry.text("item_id"), unit: entry.text("unit"))
+      var summary = grouped[id] ?? Summary(id: id, entry: entry)
+      summary.quantity += JournalTime.decimal(entry.text("quantity")) ?? 0
+      summary.count += 1
+      grouped[id] = summary
+    }
+    return grouped.values.sorted { a, b in
+      a.itemID == b.itemID ? a.unit < b.unit : precedes(a.itemID, b.itemID)
+    }
+  }
 
   public init(_ state: JournalState) {
     items = state.visible(.item)
+    itemRank = Dictionary(
+      uniqueKeysWithValues: items.enumerated().map { ($0.element.id, $0.offset) })
     activeItems = items.filter { $0.data["archived"] != .bool(true) }
     notesByDay = Dictionary(grouping: state.visible(.day)) { $0.text("date") }
     competingDays = notesByDay.filter { $0.value.count > 1 }
     for (record, instant) in state.datedEntries() {
       guard let instant else { continue }
       let item = record.text("item_id")
-      if latestByItem[item] == nil { latestByItem[item] = instant }
-      entriesByDay[JournalTime.day(instant, settings: state.settings), default: []].append(record)
+      let day = JournalTime.day(instant, settings: state.settings)
+      if latestByDay[day]?[item] == nil { latestByDay[day, default: [:]][item] = instant }
+      entriesByDay[day, default: []].append(record)
     }
   }
 }

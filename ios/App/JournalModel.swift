@@ -6,6 +6,14 @@ import SwiftUI
 @MainActor final class JournalModel: ObservableObject {
   @Published private(set) var state = JournalState()
   private(set) var display = JournalDisplay(JournalState())
+  @Published private(set) var todayKey = JournalTime.day(.now, settings: Settings())
+  func updateToday() {
+    let key = JournalTime.day(.now, settings: state.settings)
+    if todayKey != key {
+      todayKey = key
+      undo = nil
+    }
+  }
   @Published private(set) var busy = false
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
@@ -59,13 +67,14 @@ import SwiftUI
       ready = true
     } catch { message = error.localizedDescription }
   }
-  private func refresh() throws {
+  private func refresh(rebuildDisplay: Bool = false) throws {
     guard let journal else { throw Problem.message("Journal is unavailable.") }
     let updated = try journal.read()
-    if state.settings != updated.settings || state.records != updated.records {
+    if rebuildDisplay || state.settings != updated.settings || state.records != updated.records {
       display = JournalDisplay(updated)
     }
     state = updated
+    updateToday()
     if let b = state.binding {
       signedIn = try DeviceSession.load(b.key) != nil
     } else {
@@ -76,7 +85,7 @@ import SwiftUI
     active = foreground
     if foreground {
       presence.invalidate()
-      if !ready { open() }
+      if !ready { open() } else { updateToday() }
       trigger()
     } else {
       retry?.cancel()
@@ -211,6 +220,14 @@ import SwiftUI
   /// covers the final change page and any queued writes.
   func pullToSync() async -> Bool {
     let requestedScope = scope
+    // Refresh the local projection first, even offline or during a server cooldown.
+    // Only derived data is discarded; pending records and the sync cursor stay intact.
+    updateToday()
+    do { try refresh(rebuildDisplay: true) } catch {
+      message = error.localizedDescription
+      return false
+    }
+    defer { updateToday() }
     if let foregroundTask { await foregroundTask.value }
     guard requestedScope == scope, !Task.isCancelled else { return false }
     guard let task = syncTask ?? trigger() else { return false }

@@ -2,6 +2,37 @@ import IntakeKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct ItemOrderEditor: View {
+  @EnvironmentObject private var model: JournalModel
+  @Environment(\.dismiss) private var dismiss
+  @State private var rows: [Record]
+  init(items: [Record]) { _rows = State(initialValue: items) }
+  var body: some View {
+    NavigationStack {
+      JournalList {
+        ForEach(rows) { item in
+          HStack {
+            Circle().fill(itemColor(item)).frame(width: 12, height: 12)
+            Text(item.text("name"))
+            if item.data["archived"] == .bool(true) {
+              Text("Archived").font(.caption).foregroundStyle(.secondary)
+            }
+          }
+        }.onMove { source, destination in rows.move(fromOffsets: source, toOffset: destination) }
+      }.environment(\.editMode, .constant(.active))
+        .navigationTitle("Sort items").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+              if model.change({ try $0.reorderItems(rows.map(\.id)) }) { dismiss() }
+            }
+          }
+        }
+    }
+  }
+}
+
 struct JournalFile: FileDocument {
   static var readableContentTypes: [UTType] { [.data, .json, .commaSeparatedText] }
   var bytes: Data
@@ -39,6 +70,7 @@ struct SettingsView: View {
   private let guide = URL(
     string: "https://github.com/manos/intake/blob/main/README.md#native-iphone-app")!
   @SwiftUI.Binding var accent: AppAccent
+  private var appearance = AppearancePreferences()
   @EnvironmentObject var m: JournalModel
   @State var address = ""
   @State var name = ""
@@ -57,29 +89,41 @@ struct SettingsView: View {
   @State var timezone = ""
   @State var boundary = 0
   @State var item: Record?
+  @State private var sorting = false
   var body: some View {
     NavigationStack {
-      Form {
+      JournalForm {
         Section("Appearance") {
           NavigationLink {
-            List(AppAccent.allCases, id: \.self) { choice in
-              Button {
-                accent = choice
-              } label: {
-                HStack {
-                  Circle().fill(choice.color).frame(width: 16, height: 16)
-                  Text(choice.rawValue)
-                  Spacer()
-                  if choice == accent { Image(systemName: "checkmark").foregroundStyle(.tint) }
-                }.contentShape(Rectangle())
-              }.buttonStyle(.plain)
-                .accessibilityAddTraits(choice == accent ? .isSelected : [])
+            JournalList {
+              ForEach(AppAccent.allCases, id: \.self) { choice in
+                Button {
+                  appearance.accent = ""
+                  accent = choice
+                } label: {
+                  HStack {
+                    Circle().fill(choice.color).frame(width: 16, height: 16)
+                    Text(choice.rawValue)
+                    Spacer()
+                    if choice == accent && appearance.accent.isEmpty {
+                      Image(systemName: "checkmark").foregroundStyle(.tint)
+                    }
+                  }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                  .accessibilityAddTraits(
+                    choice == accent && appearance.accent.isEmpty ? .isSelected : [])
+              }
             }.navigationTitle("Accent color")
           } label: {
             LabeledContent("Accent color") {
-              Circle().fill(accent.color).frame(width: 14, height: 14)
-              Text(accent.rawValue)
+              Circle().fill(JournalPalette.color(appearance.accent) ?? accent.color).frame(
+                width: 14, height: 14)
+              Text(appearance.accent.isEmpty ? accent.rawValue : "Custom")
             }
+          }
+          ThemeColorControls(preset: $accent)
+          if UIApplication.shared.supportsAlternateIcons {
+            NavigationLink("App icon") { AppIconPicker() }
           }
         }
         Section("Sync") {
@@ -189,6 +233,9 @@ struct SettingsView: View {
           }
         }
         Section("Items") {
+          if m.display.items.count > 1 {
+            Button("Sort items", systemImage: "arrow.up.arrow.down") { sorting = true }
+          }
           ForEach(m.display.items) { r in
             Button(r.text("name") + (r.data["archived"] == .bool(true) ? " (archived)" : "")) {
               item = r
@@ -287,6 +334,7 @@ struct SettingsView: View {
           register = false
         }
         .sheet(item: $item) { ItemEditor(row: $0) }
+        .sheet(isPresented: $sorting) { ItemOrderEditor(items: m.display.items) }
         .fileImporter(
           isPresented: $importing, allowedContentTypes: [.json, .commaSeparatedText, .plainText]
         ) { result in

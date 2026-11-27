@@ -5,6 +5,42 @@ import XCTest
 
 /// CI starts an isolated HTTP FastAPI process on loopback.
 final class BackendInteropTests: XCTestCase {
+  func testDraggedItemOrderSyncsToAnotherPhone() async throws {
+    guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
+      URL(string: root)?.host == "127.0.0.1"
+    else { throw XCTSkip("Requires the disposable loopback backend.") }
+    let server = try await Server.discover(root, purpose: .signup)
+    let (user, token) = try await server.authenticate(
+      username: UUID().uuidString, password: UUID().uuidString, signup: true, timezone: "UTC")
+    let binding = Binding(
+      origin: server.origin.absoluteString, account: user.id, username: user.username)
+    let source = try Journal()
+    try source.link(binding, remote: [], cursor: 0, settings: user.settings)
+    let data = try Data(
+      contentsOf: XCTUnwrap(
+        Bundle.module.url(forResource: "web", withExtension: "json", subdirectory: "Fixtures")))
+    let a = try XCTUnwrap(Transfer.decode(data, csv: false).first(where: { $0.entity == .item }))
+    var z = a
+    z.id = UUID().uuidString.lowercased()
+    z.data["name"] = .string("Z")
+    z.data["order"] = .number(1)
+    try source.put(a)
+    try source.put(z)
+    func flush() async throws {
+      let page = try await server.pull(
+        source.requestBody(source.batch()), token: token, account: user.id)
+      XCTAssertEqual(page.results.map(\.status), ["applied", "applied"])
+      try source.accept(page)
+    }
+    try await flush()
+    try source.reorderItems([z.id, a.id])
+    try await flush()
+    let (remote, cursor) = try await server.snapshot(token: token, account: user.id)
+    let second = try Journal()
+    try second.link(binding, remote: remote, cursor: cursor, settings: user.settings)
+    XCTAssertEqual(try JournalDisplay(second.read()).activeItems.map(\.id), [z.id, a.id])
+    try await server.deleteAccount(token: token, account: user.id)
+  }
   func testFormattedDayFromOfflinePhoneAppearsOnSecondClient() async throws {
     guard let root = ProcessInfo.processInfo.environment["INTAKE_INTEROP_ORIGIN"],
       URL(string: root)?.host == "127.0.0.1"

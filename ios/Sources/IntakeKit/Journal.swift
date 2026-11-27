@@ -90,6 +90,21 @@ public final class Journal {
       $0.settingsConflict = nil
     }
   }
+  /// Apply the whole drag order atomically without replacing newer item fields.
+  public func reorderItems(_ ids: [String]) throws {
+    try change { s in
+      let current = s.visible(.item)
+      guard ids.count == current.count, Set(ids) == Set(current.map(\.id)), ids.count <= 1_000_001
+      else {
+        throw Problem.message("The item list changed. Reopen Sort items to try again.")
+      }
+      for (rank, id) in ids.enumerated() {
+        guard var row = s.records[id], row.data["order"] != .number(Decimal(rank)) else { continue }
+        row.data["order"] = .number(Decimal(rank))
+        save(row, &s)
+      }
+    }
+  }
   public func applyImport(_ rows: [Record], expectedScope: String? = nil) throws {
     try change { s in
       if let expectedScope, expectedScope != profile + "|" + (s.binding?.key ?? "local") {

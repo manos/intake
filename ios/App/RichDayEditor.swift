@@ -78,8 +78,10 @@ struct DailyJournalText: View {
 
 private struct DayTextInput: UIViewRepresentable {
   let draft: DayDraft
+  @Environment(\.journalPalette) private var palette
   final class Coordinator: NSObject, UITextViewDelegate {
     let draft: DayDraft
+    var textColorKey: String?
     init(_ draft: DayDraft) { self.draft = draft }
     func textViewDidChangeSelection(_ textView: UITextView) { draft.trackStyle() }
     func textViewDidChange(_ textView: UITextView) { draft.trackStyle() }
@@ -96,7 +98,18 @@ private struct DayTextInput: UIViewRepresentable {
     view.delegate = context.coordinator
     return view
   }
-  func updateUIView(_ view: UITextView, context: Context) {}
+  func updateUIView(_ view: UITextView, context: Context) {
+    view.backgroundColor =
+      (JournalPalette.color(palette.surface) ?? JournalPalette.color(palette.background)).map(
+        UIColor.init) ?? .systemBackground
+    guard context.coordinator.textColorKey != palette.text else { return }
+    context.coordinator.textColorKey = palette.text
+    let color = JournalPalette.color(palette.text).map(UIColor.init) ?? .label
+    let typing = view.typingAttributes
+    view.textStorage.addAttribute(
+      .foregroundColor, value: color, range: NSRange(location: 0, length: view.textStorage.length))
+    view.typingAttributes = typing.merging([.foregroundColor: color]) { _, new in new }
+  }
   static func dismantleUIView(_ view: UITextView, coordinator: Coordinator) {
     coordinator.draft.detach(view)
   }
@@ -112,6 +125,7 @@ struct DayEditor: View {
 
 private struct DayEditForm: View {
   @EnvironmentObject var model: JournalModel
+  @Environment(\.journalPalette) private var palette
   @Environment(\.dismiss) var dismiss
   let day: String
   @StateObject private var draft: DayDraft
@@ -128,6 +142,7 @@ private struct DayEditForm: View {
       Divider()
       Toggle("Confirmed zero day", isOn: $zero).padding()
     }
+    .background(JournalPalette.color(palette.background) ?? .clear)
     .navigationTitle("Daily Journal").navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

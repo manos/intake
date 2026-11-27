@@ -4,6 +4,7 @@ import SwiftUI
 @main struct IntakeApp: App {
   @StateObject private var model = JournalModel()
   @AppStorage("appearance.accent") private var accent: AppAccent = .purple
+  private var appearance = AppearancePreferences()
   @Environment(\.scenePhase) private var phase
   var body: some Scene {
     WindowGroup {
@@ -26,7 +27,9 @@ import SwiftUI
           }
         }
       }
-      .environmentObject(model).tint(accent.color)
+      .environmentObject(model).environment(\.journalPalette, appearance.palette)
+      .foregroundColor(JournalPalette.color(appearance.text))
+      .tint(JournalPalette.color(appearance.accent) ?? accent.color)
       .alert(
         "Intake",
         isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } })
@@ -52,57 +55,36 @@ func itemColor(_ r: Record) -> Color {
   return Color(
     red: Double(n >> 16) / 255, green: Double((n >> 8) & 255) / 255, blue: Double(n & 255) / 255)
 }
-func totals(_ entries: [Record]) -> String {
-  let grouped = Dictionary(grouping: entries) { [$0.text("item_id"), $0.text("unit")] }
-  return grouped.values.map { group in
-    let n = group.reduce(Decimal.zero) { $0 + (JournalTime.decimal($1.text("quantity")) ?? 0) }
-    return
-      "\(group[0].text("item_name")): \(NSDecimalNumber(decimal:n).stringValue) \(group[0].text("unit"))"
-  }.sorted().joined(separator: " · ")
+func totals(_ summaries: [JournalDisplay.Summary]) -> String {
+  summaries.map { "\($0.entry.text("item_name")): \($0.amountText)" }.joined(separator: " · ")
 }
-private struct SyncStatusRow: View {
-  @EnvironmentObject var m: JournalModel
+private struct ConnectionCloud: View {
   let status: ServerPresence.Badge
-  let showSuccess: Bool
-  var appearance: (text: String, icon: String, color: Color) {
+  var description: String {
     switch status {
-    case .connected: return ("Connected", "cloud.fill", .green)
-    case .syncFailed: return ("Sync failed", "exclamationmark.icloud.fill", .orange)
-    case .offline: return ("Offline", "icloud.slash", .secondary)
-    case .checking: return ("Checking", "ellipsis.icloud", .secondary)
+    case .connected: "Connected"
+    case .syncFailed: "Sync failed"
+    case .offline: "Offline"
+    case .checking: "Checking connection"
     }
   }
   var body: some View {
-    let success = showSuccess && status == .connected
-    let pending = m.state.pending.count + m.state.purges.count
-    VStack(alignment: .leading, spacing: 4) {
-      Label {
-        Text(success ? "Success!" : appearance.text)
-      } icon: {
-        Image(systemName: success ? "checkmark.circle.fill" : appearance.icon)
-          .foregroundStyle(appearance.color)
-      }
-      .labelStyle(.titleAndIcon)
-      .accessibilityLabel(success ? "Sync successful" : "Server: \(appearance.text)")
-      if pending > 0 { Text("\(pending) pending") }
-      if m.state.incomplete || status == .syncFailed || m.syncStatus == "Syncing…",
-        !m.syncStatus.isEmpty, m.syncStatus != "Synced"
-      {
-        Text(m.syncStatus)
-      }
-    }
-    .font(.subheadline).foregroundStyle(.secondary)
-    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+    Image(systemName: status == .connected ? "icloud.fill" : "icloud.slash")
+      .foregroundStyle(status == .connected ? Color.green : Color.secondary)
+      .frame(width: 24, height: 24)
+      .accessibilityLabel("Server: \(description)")
   }
 }
 struct EntryLine: View {
   let row: Record
+  let timezone: String
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Text("\(row.text("item_name")) · \(row.text("quantity")) \(row.text("unit"))")
       if let d = JournalTime.instant(row.text("occurred_at")) {
-        Text(d.formatted(date: .abbreviated, time: .standard)).font(.caption).foregroundStyle(
-          .secondary)
+        Text(d, format: .dateTime.month(.abbreviated).day().year().hour().minute().second())
+          .environment(\.timeZone, TimeZone(identifier: timezone) ?? .current)
+          .font(.caption).foregroundStyle(.secondary)
       }
       if !row.text("note").isEmpty { Text(row.text("note")).font(.subheadline) }
     }
@@ -111,7 +93,6 @@ struct EntryLine: View {
 struct TodayView: View {
   @EnvironmentObject var m: JournalModel
   @Environment(\.scenePhase) private var phase
-  @State private var journalDay: String?
   @State private var edit: Record?
   @State private var adding = false
   @State private var dayEditor = false
@@ -119,10 +100,8 @@ struct TodayView: View {
   @State private var successID: UUID?
   var body: some View {
     NavigationStack {
-      List {
-        if let status = m.connectionBadge {
-          SyncStatusRow(status: status, showSuccess: successID != nil)
-        }
+      let today = m.display.day(m.todayKey)
+      JournalList {
         Section("Items") {
           ForEach(m.display.activeItems) { row in
             HStack {
@@ -133,8 +112,8 @@ struct TodayView: View {
                   Image(systemName: "plus.circle.fill").foregroundStyle(itemColor(row))
                   VStack(alignment: .leading) {
                     Text(row.text("name"))
-                    Text("\(row.text("amount")) \(row.text("unit"))").font(.caption)
-                    if let d = m.display.latestByItem[row.id] {
+                    Text("Log \(row.text("amount")) \(row.text("unit"))").font(.caption)
+                    if let d = today.lastTaken[row.id] {
                       Text(d, style: .relative).font(.caption2)
                     }
                   }
@@ -163,10 +142,8 @@ struct TodayView: View {
           Button("Add item", systemImage: "plus") { adding = true }
         }
         Section("Today’s journal") {
-          let day = journalDay ?? JournalTime.day(.now, settings: m.state.settings)
-          let entries = m.display.entriesByDay[day] ?? []
-          let dayRow = m.display.notesByDay[day]?.first
-          if let dayRow {
+          let entries = today.entries
+          if let dayRow = today.journal {
             DailyJournalText(row: dayRow)
             if dayRow.data["zero"] == .bool(true) && entries.isEmpty {
               Text("Confirmed zero").font(.caption)
@@ -180,14 +157,14 @@ struct TodayView: View {
           if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
               Text("Daily totals").font(.caption.weight(.semibold))
-              Text(totals(entries)).font(.subheadline)
+              Text(totals(m.display.summaries(entries))).font(.subheadline)
             }.foregroundStyle(.secondary).accessibilityElement(children: .combine)
           }
           ForEach(entries) { r in
             Button {
               edit = r
             } label: {
-              EntryLine(row: r)
+              EntryLine(row: r, timezone: m.state.settings.timezone)
             }
           }
         }
@@ -201,22 +178,31 @@ struct TodayView: View {
       .task(id: phase) {
         guard phase == .active else { return }
         while !Task.isCancelled {
-          updateDay()
-          do { try await Task.sleep(for: .seconds(60)) } catch { return }
+          m.updateToday()
+          let remaining = 60 - Date.now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+          do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
         }
       }
-      .onChange(of: m.state.settings) { _, _ in updateDay() }
-      .modifier(
-        LinkedRefresh(
-          enabled: m.state.binding != nil && m.signedIn && m.state.deletionChoice == nil
-        ) {
-          successID = nil
-          if await m.pullToSync() {
-            successID = UUID()
-            AccessibilityNotification.Announcement("Sync successful").post()
-          }
+      .onAppear { m.updateToday() }
+      .onReceive(
+        NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+      ) { _ in m.updateToday() }
+      .refreshable {
+        await manualRefresh()
+      }
+      .overlay(alignment: .topTrailing) {
+        if successID != nil && m.connectionBadge == .connected {
+          Text("Success!").font(.caption.weight(.medium)).padding(.horizontal, 10).padding(
+            .vertical, 5
+          )
+          .background(.regularMaterial, in: Capsule()).padding(.trailing).allowsHitTesting(false)
         }
-      )
+      }
+      .toolbar {
+        if let status = m.connectionBadge {
+          ToolbarItem(placement: .topBarTrailing) { ConnectionCloud(status: status) }
+        }
+      }
       .task(id: successID) {
         guard successID != nil else { return }
         do { try await Task.sleep(for: .seconds(2)) } catch { return }
@@ -230,16 +216,12 @@ struct TodayView: View {
       }
     }
   }
-  private func updateDay() {
-    let next = JournalTime.day(.now, settings: m.state.settings)
-    if journalDay != next { journalDay = next }
-  }
-}
-private struct LinkedRefresh: ViewModifier {
-  let enabled: Bool
-  let action: @MainActor @Sendable () async -> Void
-  @ViewBuilder func body(content: Content) -> some View {
-    if enabled { content.refreshable { await action() } } else { content }
+  @MainActor private func manualRefresh() async {
+    successID = nil
+    if await m.pullToSync() {
+      successID = UUID()
+      AccessibilityNotification.Announcement("Sync successful").post()
+    }
   }
 }
 
@@ -323,7 +305,7 @@ struct EntryEditor: View {
   }
   var body: some View {
     NavigationStack {
-      Form {
+      JournalForm {
         Text(row.text("item_name"))
         TextField("Quantity (\(row.text("unit")))", text: field("quantity")).keyboardType(
           .decimalPad)
@@ -391,7 +373,7 @@ struct ItemEditor: View {
   }
   var body: some View {
     NavigationStack {
-      Form {
+      JournalForm {
         TextField("Name", text: field("name"))
         TextField("Unit", text: field("unit"))
         TextField("Default amount", text: field("amount")).keyboardType(.decimalPad)
@@ -429,6 +411,10 @@ struct ItemEditor: View {
         Button("Save") {
           row.data["presets"] = .array(
             presets.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) })
+          if m.state.records[row.id] == nil {
+            row.data["order"] = .number(
+              Decimal(min(1_000_000, (Int(m.display.items.last?.text("order") ?? "") ?? -1) + 1)))
+          }
           if m.change({ try $0.put(row) }) { dismiss() }
         }
         Button("Cancel") { dismiss() }
