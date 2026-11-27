@@ -98,41 +98,20 @@ struct SettingsView: View {
   @State var timezone = ""
   @State var boundary = 0
   @State var item: Record?
+  @State private var addingItem = false
   @State private var sorting = false
   var body: some View {
     NavigationStack {
       JournalForm {
-        Section("Appearance") {
-          NavigationLink {
-            JournalList {
-              ForEach(AppAccent.allCases, id: \.self) { choice in
-                Button {
-                  appearance.accent = ""
-                  accent = choice
-                } label: {
-                  HStack {
-                    Circle().fill(choice.color).frame(width: 16, height: 16)
-                    Text(choice.rawValue)
-                    Spacer()
-                    if choice == accent && appearance.accent.isEmpty {
-                      Image(systemName: "checkmark").foregroundStyle(.tint)
-                    }
-                  }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                  .accessibilityAddTraits(
-                    choice == accent && appearance.accent.isEmpty ? .isSelected : [])
-              }
-            }.navigationTitle("Accent color")
-          } label: {
-            LabeledContent("Accent color") {
-              Circle().fill(JournalPalette.color(appearance.accent) ?? accent.color).frame(
-                width: 14, height: 14)
-              Text(appearance.accent.isEmpty ? accent.rawValue : "Custom")
-            }
+        Section("Items") {
+          if m.display.items.count > 1 {
+            Button("Sort items", systemImage: "arrow.up.arrow.down") { sorting = true }
           }
-          ThemeColorControls(preset: $accent)
-          if UIApplication.shared.supportsAlternateIcons {
-            NavigationLink("App icon") { AppIconPicker() }
+          Button("Add item", systemImage: "plus") { addingItem = true }
+          ForEach(m.display.items) { r in
+            Button(r.text("name") + (r.data["archived"] == .bool(true) ? " (archived)" : "")) {
+              item = r
+            }
           }
         }
         Section("Sync") {
@@ -213,9 +192,8 @@ struct SettingsView: View {
               .caption)
           }
           if let account = m.state.binding { ServerDeletionActions(account: account) }
-        }
-        ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
-          Section("Choose the Daily Journal entry for \(day)") {
+          ForEach(m.display.competingDays.keys.sorted(), id: \.self) { day in
+            Text("Choose the Daily Journal entry for \(day)").font(.headline)
             ForEach(m.display.competingDays[day] ?? []) { r in
               Button("Keep: \(r.text("note"))\(r.data["zero"] == .bool(true) ? " (zero day)" : "")")
               {
@@ -223,9 +201,8 @@ struct SettingsView: View {
               }
             }
           }
-        }
-        if !m.state.conflicts.isEmpty {
-          Section("Resolve conflicts") {
+          if !m.state.conflicts.isEmpty {
+            Text("Resolve conflicts").font(.headline)
             ForEach(
               m.state.conflicts.keys.filter { id in
                 guard let r = m.state.records[id], r.entity == .day else { return true }
@@ -243,7 +220,7 @@ struct SettingsView: View {
             }
           }
         }
-        Section("Journal day") {
+        Section("Journal Day") {
           Picker("Time zone", selection: $timezone) {
             ForEach(
               Array(Set(TimeZone.knownTimeZoneIdentifiers + [m.state.settings.timezone])).sorted(),
@@ -259,17 +236,40 @@ struct SettingsView: View {
             Button("Use server settings") { m.change { try $0.preferences(p) } }
           }
         }
-        Section("Items") {
-          if m.display.items.count > 1 {
-            Button("Sort items", systemImage: "arrow.up.arrow.down") { sorting = true }
-          }
-          ForEach(m.display.items) { r in
-            Button(r.text("name") + (r.data["archived"] == .bool(true) ? " (archived)" : "")) {
-              item = r
+        Section("Appearance") {
+          NavigationLink {
+            JournalList {
+              ForEach(AppAccent.allCases, id: \.self) { choice in
+                Button {
+                  appearance.accent = ""
+                  accent = choice
+                } label: {
+                  HStack {
+                    Circle().fill(choice.color).frame(width: 16, height: 16)
+                    Text(choice.rawValue)
+                    Spacer()
+                    if choice == accent && appearance.accent.isEmpty {
+                      Image(systemName: "checkmark").foregroundStyle(.tint)
+                    }
+                  }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                  .accessibilityAddTraits(
+                    choice == accent && appearance.accent.isEmpty ? .isSelected : [])
+              }
+            }.navigationTitle("Accent color")
+          } label: {
+            LabeledContent("Accent color") {
+              Circle().fill(JournalPalette.color(appearance.accent) ?? accent.color).frame(
+                width: 14, height: 14)
+              Text(appearance.accent.isEmpty ? accent.rawValue : "Custom")
             }
           }
+          ThemeColorControls(preset: $accent)
+          if UIApplication.shared.supportsAlternateIcons {
+            NavigationLink("App icon") { AppIconPicker() }
+          }
         }
-        Section("Import and export") {
+        Section("Import and Export") {
           ForEach(m.state.importConflicts.keys.sorted(), id: \.self) { id in
             Text("This journal: " + summary(m.state.records[id]))
             Text("Imported: " + summary(m.state.importConflicts[id]))
@@ -327,6 +327,7 @@ struct SettingsView: View {
           register = false
         }
         .sheet(item: $item) { ItemEditor(row: $0) }
+        .sheet(isPresented: $addingItem) { ItemEditor(row: nil) }
         .sheet(isPresented: $sorting) { ItemOrderEditor(items: m.display.items) }
         .fileImporter(
           isPresented: $importing, allowedContentTypes: [.json]
