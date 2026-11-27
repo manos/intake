@@ -43,7 +43,8 @@ private struct ItemOrderEditor: View {
 }
 
 struct JournalFile: FileDocument {
-  static var readableContentTypes: [UTType] { [.data, .json, .commaSeparatedText] }
+  static var readableContentTypes: [UTType] { [.json] }
+  static var writableContentTypes: [UTType] { [.json, UTType(filenameExtension: "xls") ?? .data] }
   var bytes: Data
   init(_ bytes: Data) { self.bytes = bytes }
   init(configuration: ReadConfiguration) throws {
@@ -270,7 +271,8 @@ struct SettingsView: View {
               m.change { try $0.resolveImport(id, useImported: true) }
             }
           }
-          Button("Import JSON or CSV") {
+          Button("Import JSON backup") {
+            preview = nil
             previewScope = m.scope
             importing = true
           }
@@ -353,7 +355,7 @@ struct SettingsView: View {
         .sheet(item: $item) { ItemEditor(row: $0) }
         .sheet(isPresented: $sorting) { ItemOrderEditor(items: m.display.items) }
         .fileImporter(
-          isPresented: $importing, allowedContentTypes: [.json, .commaSeparatedText, .plainText]
+          isPresented: $importing, allowedContentTypes: [.json]
         ) { result in
           do {
             let url = try result.get()
@@ -361,8 +363,7 @@ struct SettingsView: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size <= 5_000_000 else { throw Problem.message("File is too large.") }
-            preview = try Transfer.decode(
-              Data(contentsOf: url), csv: url.pathExtension.lowercased() == "csv")
+            preview = try Transfer.decode(Data(contentsOf: url))
           } catch { m.message = error.localizedDescription }
         }
         .fileExporter(

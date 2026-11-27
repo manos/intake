@@ -4,7 +4,7 @@ import { dayId, dayKey, snapshot } from "./core";
 import { previewImport } from "./import";
 
 it("round-trips the same exact-time journal as the native client", async () => {
-  const preview = previewImport(raw, "web.json");
+  const preview = previewImport(raw);
   expect(preview.errors).toEqual([]);
   expect(snapshot(preview.rows)).toEqual(JSON.parse(raw));
   const entry = preview.rows.find((r) => r.entity === "entry")!;

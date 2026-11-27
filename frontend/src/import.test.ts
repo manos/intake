@@ -11,10 +11,7 @@ it("imports native journal formatting without splitting Unicode characters", () 
     styles: [[3, 7, 3]],
   };
   const preview = () =>
-    previewImport(
-      JSON.stringify({ items: [], entries: [], days: [day] }),
-      "journal.json",
-    );
+    previewImport(JSON.stringify({ items: [], entries: [], days: [day] }));
   expect(preview().errors).toEqual([]);
   expect(preview().rows[0].data.styles).toEqual([[3, 7, 3]]);
   day.styles = [[1, 1, 1]];
@@ -42,9 +39,7 @@ it("accepts a valid native Daily Journal entry longer than 10,000 UTF-16 units",
       { id, date: "2026-11-26", note, zero: false, styles: [[0, 10002, 2]] },
     ],
   };
-  expect(previewImport(JSON.stringify(data), "journal.json").errors).toEqual(
-    [],
-  );
+  expect(previewImport(JSON.stringify(data)).errors).toEqual([]);
 });
 it("round trips decimal strings in backups", () => {
   const p = previewImport(
@@ -64,24 +59,20 @@ it("round trips decimal strings in backups", () => {
       entries: [],
       days: [],
     }),
-    "backup.json",
   );
   expect(p.errors).toEqual([]);
 });
-it("maps CSV identity separately and supplies optional note", () => {
+it("rejects a spreadsheet of entries instead of offering a partial restore", () => {
   const p = previewImport(
     `id,item_id,item_name,quantity,unit,occurred_at,timezone,color\n${id},${id},Personal item,1,unit,2026-10-30T12:00:00Z,UTC,#123456`,
-    "entries.csv",
   );
-  expect(p.errors).toEqual([]);
-  expect(p.rows[0].data).not.toHaveProperty("id");
-  expect(p.rows[0].data.note).toBe("");
+  expect(p.rows).toEqual([]);
+  expect(p.errors).toHaveLength(1);
 });
 it("rejects ambiguous dates and malformed identity", () => {
   expect(
     previewImport(
       JSON.stringify({ items: [], entries: [{ id: "wrong" }], days: [] }),
-      "a.json",
     ).errors.length,
   ).toBe(1);
 });
@@ -89,7 +80,6 @@ it("rejects ambiguous duplicate day records", () => {
   const d = { date: "2026-10-30", note: "", zero: false };
   const p = previewImport(
     JSON.stringify({ items: [], entries: [], days: [d, d] }),
-    "days.json",
   );
   expect(p.errors.length).toBe(1);
 });

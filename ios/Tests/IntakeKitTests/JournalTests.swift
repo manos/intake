@@ -328,7 +328,7 @@ final class JournalTests: XCTestCase {
   func sample() throws -> [Record] {
     let url = try XCTUnwrap(
       Bundle.module.url(forResource: "web", withExtension: "json", subdirectory: "Fixtures"))
-    return try Transfer.decode(Data(contentsOf: url), csv: false)
+    return try Transfer.decode(Data(contentsOf: url))
   }
 
   func testLocalRestoreAndDuplicateImport() throws {
@@ -343,7 +343,7 @@ final class JournalTests: XCTestCase {
     XCTAssertEqual(state.visible(.entry).count, 1)
     XCTAssertEqual(state.visible(.entry).first?.text("occurred_at"), "2026-11-01T01:30:14-05:00")
     XCTAssertTrue(state.pending.isEmpty)
-    XCTAssertEqual(try Transfer.decode(Transfer.export(state), csv: false).count, 2)
+    XCTAssertEqual(try Transfer.decode(Transfer.export(state)).count, 2)
   }
 
   func testFirstLinkMergesWithoutInventingDuplicateDoses() throws {

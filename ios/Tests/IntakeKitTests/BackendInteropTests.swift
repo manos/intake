@@ -19,7 +19,7 @@ final class BackendInteropTests: XCTestCase {
     let data = try Data(
       contentsOf: XCTUnwrap(
         Bundle.module.url(forResource: "web", withExtension: "json", subdirectory: "Fixtures")))
-    let a = try XCTUnwrap(Transfer.decode(data, csv: false).first(where: { $0.entity == .item }))
+    let a = try XCTUnwrap(Transfer.decode(data).first(where: { $0.entity == .item }))
     var z = a
     z.id = UUID().uuidString.lowercased()
     z.data["name"] = .string("Z")
@@ -142,8 +142,7 @@ final class BackendInteropTests: XCTestCase {
     let rows = try Transfer.decode(
       Data(
         contentsOf: XCTUnwrap(
-          Bundle.module.url(forResource: "web", withExtension: "json", subdirectory: "Fixtures"))),
-      csv: false)
+          Bundle.module.url(forResource: "web", withExtension: "json", subdirectory: "Fixtures"))))
     let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: file) }
     let j = try Journal(file: file)

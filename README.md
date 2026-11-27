@@ -67,7 +67,7 @@ When using your own reverse proxy, set `PUBLIC_ORIGIN` to the exact external ori
 - Write in the Daily Journal without adding an intake. Explicitly confirm a zero-intake day; an empty day is otherwise unrecorded.
 - Explore History through weekly count/amount charts, an exact-time timeline, per-item summaries and a monthly calendar. Filter by dates or item, navigate previous periods, and tap a day or entry for its full journal and notes. Archived items and historical units remain available; quantities in different units stay separate.
 - Archive medicines while retaining history. Imported data is previewed and validated before saving.
-- Export a real Excel 97–2003 **`.xls`** workbook, including locally pending entries. XLS generation requires the backend. JSON backup is available offline; JSON/CSV imports support migration.
+- Export or restore an Intake **JSON backup** offline. For a spreadsheet, connect to the backend and export an Excel 97–2003 **`.xls`** workbook, including locally pending entries.
 
 A local save is acknowledged only after its IndexedDB transaction succeeds. The visible pending count shows entries still waiting for the server. Independent devices cannot know each other's offline entries. If both edit the same record, Intake preserves the local change and asks which version to keep.
 

@@ -15,33 +15,13 @@ public enum Transfer {
     encoder.outputFormatting = [.sortedKeys]
     return try encoder.encode(map)
   }
-  public static func decode(_ data: Data, csv: Bool) throws -> [Record] {
+  public static func decode(_ data: Data) throws -> [Record] {
     guard data.count <= 5_000_000 else { throw Problem.message("Choose a file smaller than 5 MB.") }
     let map: [String: [[String: Value]]]
-    if csv {
-      guard let text = String(data: data, encoding: .utf8) else {
-        throw Problem.message("CSV must use UTF-8.")
-      }
-      var lines = try csvRows(text)
-      guard !lines.isEmpty else { throw Problem.message("CSV is empty.") }
-      let header = lines.removeFirst().map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      guard Set(header).count == header.count else {
-        throw Problem.message("Duplicate CSV column.")
-      }
-      map = [
-        "items": [], "days": [],
-        "entries": try lines.enumerated().map { i, fields in
-          guard fields.count == header.count else {
-            throw Problem.message("Column count differs at row \(i+2).")
-          }
-          var d = Dictionary(uniqueKeysWithValues: zip(header, fields.map(Value.string)))
-          if d["id"]?.text == "" { d.removeValue(forKey: "id") }
-          if d["note"] == nil { d["note"] = .string("") }
-          return d
-        },
-      ]
-    } else {
+    do {
       map = try JSONDecoder().decode([String: [[String: Value]]].self, from: data)
+    } catch {
+      throw Problem.message("Choose a valid Intake JSON backup.")
     }
     var rows: [Record] = []
     var ids = Set<String>()
@@ -66,42 +46,6 @@ public enum Transfer {
         rows.append(r)
       }
     }
-    return rows
-  }
-  static func csvRows(_ text: String) throws -> [[String]] {
-    // Parse scalars so CRLF does not become one unrecognized Character.
-    let chars = Array(text.unicodeScalars)
-    var rows: [[String]] = []
-    var row: [String] = []
-    var field = ""
-    var quote = false
-    var i = 0
-    while i < chars.count {
-      let c = chars[i]
-      i += 1
-      if c == "\"" {
-        if quote && i < chars.count && chars[i] == "\"" {
-          field += "\""
-          i += 1
-        } else {
-          quote.toggle()
-        }
-      } else if c == "," && !quote {
-        row.append(field)
-        field = ""
-      } else if !quote && (c == "\n" || c == "\r") {
-        if c == "\r" && i < chars.count && chars[i] == "\n" { i += 1 }
-        row.append(field)
-        if row.contains(where: { !$0.isEmpty }) { rows.append(row) }
-        row = []
-        field = ""
-      } else {
-        field.unicodeScalars.append(c)
-      }
-    }
-    guard !quote else { throw Problem.message("Unclosed quote in CSV.") }
-    row.append(field)
-    if row.contains(where: { !$0.isEmpty }) { rows.append(row) }
     return rows
   }
   static func validate(_ r: Record) throws {

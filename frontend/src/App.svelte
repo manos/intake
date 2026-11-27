@@ -685,11 +685,12 @@
   async function chooseFile(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
+    importPreview = undefined;
     if (file.size > 5_000_000) {
       error = "Choose a file smaller than 5 MB.";
       return;
     }
-    importPreview = previewImport(await file.text(), file.name);
+    importPreview = previewImport(await file.text());
   }
   async function importRows() {
     const active = journal;
@@ -1105,9 +1106,7 @@
         </section>
         <section class="settings-card">
           <h2>Import</h2>
-          <p>
-            Import a JSON backup or a CSV file. Review everything before saving.
-          </p>
+          <p>Import an Intake JSON backup. Review everything before saving.</p>
           <button
             class="text-button"
             onclick={() => {
@@ -1497,25 +1496,14 @@
             </p>{/if}
         </form>
       {:else if modal === "import"}<h2 id="dialog-title">Import</h2>
-        <p>
-          Choose an Intake JSON backup or a CSV with explicit times and item
-          IDs. Nothing is saved until you confirm.
-        </p>
+        <p>Choose an Intake JSON backup. Nothing is saved until you confirm.</p>
         <label class="file-picker"
-          >Choose JSON or CSV<input
+          >Choose JSON backup<input
             type="file"
-            accept=".json,.csv,application/json,text/csv"
+            accept=".json,application/json"
             onchange={chooseFile}
           /></label
         >
-        <details>
-          <summary>CSV column guide</summary>
-          <p class="micro">
-            Required: item_id, item_name, quantity, unit, occurred_at, timezone,
-            color. Optional: id, note. Times must include Z or an explicit
-            offset. Item IDs must already exist. Export JSON to find them.
-          </p>
-        </details>
         {#if importPreview}<div class="import-preview">
             <h3>{importPreview.rows.length} records to review</h3>
             {#each importPreview.errors as message}<p class="error">

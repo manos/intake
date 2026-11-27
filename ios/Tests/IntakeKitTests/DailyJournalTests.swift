@@ -99,7 +99,7 @@ final class DailyJournalTests: XCTestCase {
     var formatted = plain
     formatted.data["styles"] = .array([.array([.number(3), .number(7), .number(3)])])
     try j.put(formatted)
-    let rows = try Transfer.decode(Transfer.export(j.read()), csv: false)
+    let rows = try Transfer.decode(Transfer.export(j.read()))
     XCTAssertEqual(rows, [formatted])
     XCTAssertEqual(try DayStyle.spans(in: rows[0]).first?.range, NSRange(location: 3, length: 7))
     formatted.data["styles"] = .array([.array([.number(1), .number(1), .number(1)])])

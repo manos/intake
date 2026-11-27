@@ -3,99 +3,38 @@ export interface Preview {
   rows: Row[];
   errors: string[];
 }
-function csv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let value = "",
-    quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === '"') {
-      if (quoted && text[i + 1] === '"') {
-        value += '"';
-        i++;
-      } else quoted = !quoted;
-    } else if (c === "," && !quoted) {
-      row.push(value);
-      value = "";
-    } else if ((c === "\n" || c === "\r") && !quoted) {
-      if (c === "\r" && text[i + 1] === "\n") i++;
-      row.push(value);
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-      value = "";
-    } else value += c;
-  }
-  if (quoted) throw new Error("Unclosed quoted CSV field.");
-  row.push(value);
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
-}
-export function previewImport(text: string, filename: string): Preview {
+export function previewImport(text: string): Preview {
   const rows: Row[] = [],
     errors: string[] = [];
   try {
-    if (filename.toLowerCase().endsWith(".csv")) {
-      const [headers, ...data] = csv(text);
-      if (!headers) throw new Error("The file is empty.");
-      const needed = [
-        "item_id",
-        "item_name",
-        "quantity",
-        "unit",
-        "occurred_at",
-        "timezone",
-        "color",
-      ];
-      for (const name of needed)
-        if (!headers.includes(name))
-          throw new Error(
-            `CSV needs column ${name}. Required: ${needed.join(", ")}. Optional: note, id.`,
-          );
-      data.forEach((values, i) => {
-        const d = Object.fromEntries(
-          headers.map((h, n) => [h.trim(), values[n] ?? ""]),
-        );
-        const { id, ...fields } = d;
-        fields.note ??= "";
-        validate("entry", fields, `Row ${i + 2}`);
-        const recordId = id || crypto.randomUUID();
-        if (!uuid(recordId))
-          throw new Error(`Row ${i + 2}: invalid record ID.`);
+    const data = JSON.parse(text);
+    for (const [key, entity] of [
+      ["items", "item"],
+      ["entries", "entry"],
+      ["days", "day"],
+    ] as const) {
+      if (!Array.isArray(data[key]))
+        throw new Error(`JSON needs a ${key} array.`);
+      data[key].forEach((raw: any, i: number) => {
+        const { id, ...d } = raw;
+        if (id && !uuid(id))
+          throw new Error(`${key} ${i + 1}: invalid record ID.`);
+        validate(entity, d, `${key} ${i + 1}`);
         rows.push({
-          id: recordId,
-          entity: "entry",
+          id: id || crypto.randomUUID(),
+          entity,
           version: 0,
           deleted: false,
-          data: fields,
+          data: d,
         });
       });
-    } else {
-      const data = JSON.parse(text);
-      for (const [key, entity] of [
-        ["items", "item"],
-        ["entries", "entry"],
-        ["days", "day"],
-      ] as const) {
-        if (!Array.isArray(data[key]))
-          throw new Error(`JSON needs a ${key} array.`);
-        data[key].forEach((raw: any, i: number) => {
-          const { id, ...d } = raw;
-          if (id && !uuid(id))
-            throw new Error(`${key} ${i + 1}: invalid record ID.`);
-          validate(entity, d, `${key} ${i + 1}`);
-          rows.push({
-            id: id || crypto.randomUUID(),
-            entity,
-            version: 0,
-            deleted: false,
-            data: d,
-          });
-        });
-      }
     }
   } catch (e) {
-    errors.push((e as Error).message);
+    errors.push(
+      e instanceof SyntaxError
+        ? "Choose a valid Intake JSON backup."
+        : (e as Error).message,
+    );
   }
   const identities = new Set<string>();
   const dates = new Set<string>();

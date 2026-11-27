@@ -21,11 +21,11 @@ Keep the SQLite store in a protected subdirectory of `Library/Application Suppor
 Implement in two usable slices:
 
 1. **Today and editing:** user-defined items, colors, units, amounts and presets; one-tap logging, notes, backdating, editing, undo, archive and permanent deletion. Keep Today totals visible. Distinguish a confirmed zero day from an unrecorded day. Store the chosen timezone and day boundary locally.
-2. **History and portability:** Week, Timeline, By item and Calendar with shared filters, actual note text and entry drill-down. Support Dynamic Type and VoiceOver, including a readable alternative to charts. Offer offline JSON export and previewed JSON/CSV import from Files. Import preserves item references and IDs; never merge entries solely by name or time. Real `.xls` export can use the existing server when connected, with pending device edits included in the submitted snapshot.
+2. **History and portability:** Week, Timeline, By item and Calendar with shared filters, actual note text and entry drill-down. Support Dynamic Type and VoiceOver, including a readable alternative to charts. Offer offline JSON export and previewed JSON backup import from Files. Import preserves item references and IDs; never merge entries solely by name or time. Real `.xls` export can use the existing server when connected, with pending device edits included in the submitted snapshot.
 
 Before committing an import, verify every entry's item ID exists in the journal or in the same import. This mirrors `App.svelte`'s check after parsing the file. Reject the batch with a row-level explanation if a parent is missing; do not invent a medicine from an entry snapshot.
 
-**Exit:** On a fresh install in airplane mode, create an item, log and edit it, kill the app, reopen it, see the same history and export it. Import a real-format synthetic web backup twice without duplicating its records. Reject an orphan CSV row without a partial import. Include a schema-upgrade fixture and a write-failure case.
+**Exit:** On a fresh install in airplane mode, create an item, log and edit it, kill the app, reopen it, see the same history and export it. Import a real-format synthetic web backup twice without duplicating its records. Reject an entry with a missing item without a partial import. Include a schema-upgrade fixture and a write-failure case.
 
 ## 3. Prove device backup and restore
 
