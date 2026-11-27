@@ -91,10 +91,12 @@ public final class Journal {
     }
   }
   /// Apply the whole drag order atomically without replacing newer item fields.
-  public func reorderItems(_ ids: [String]) throws {
+  public func reorderItems(_ ids: [String], replacing original: [String]) throws {
+    guard ids != original else { return }
     try change { s in
       let current = s.visible(.item)
-      guard ids.count == current.count, Set(ids) == Set(current.map(\.id)), ids.count <= 1_000_001
+      guard current.map(\.id) == original, ids.count == current.count, Set(ids) == Set(original),
+        ids.count <= 1_000_001
       else {
         throw Problem.message("The item list changed. Reopen Sort items to try again.")
       }

@@ -53,8 +53,9 @@ struct HistoryView: View {
     return values
   }
   struct Point: Identifiable {
-    let day: String, series: String, value: Double, itemID: String
-    var id: String { day + itemID + series }
+    let day: String, series: String, value: Double, itemID: String, unit: String, color: Color
+    var seriesKey: String { itemID + "|" + unit }
+    var id: String { day + seriesKey }
   }
   func filtered(_ r: [Record]) -> [Record] {
     r.filter { filter.isEmpty || $0.text("item_id") == filter }
@@ -68,12 +69,12 @@ struct HistoryView: View {
           ? NSDecimalNumber(decimal: summary.quantity).doubleValue : Double(summary.count)
         return Point(
           day: day, series: e.text("item_name") + " (" + e.text("unit") + ")", value: value,
-          itemID: e.text("item_id"))
+          itemID: e.text("item_id"), unit: summary.unit, color: itemColor(e))
       }
     }
     return result.sorted { a, b in
       if a.itemID != b.itemID { return m.display.precedes(a.itemID, b.itemID) }
-      return (a.series, a.day) < (b.series, b.day)
+      return (a.unit, a.day) < (b.unit, b.day)
     }
   }
   var body: some View {
@@ -115,12 +116,13 @@ struct HistoryView: View {
         if mode == .week {
           Section("Weekly totals") {
             Toggle("Show quantities", isOn: $amountChart)
-            Chart(points(buckets, days: days)) { p in
+            let values = points(buckets, days: days)
+            Chart(values) { p in
               BarMark(
                 x: .value("Day", p.day), y: .value(amountChart ? "Quantity" : "Count", p.value)
               )
-              .position(by: .value("Item and unit", p.series)).foregroundStyle(
-                by: .value("Item and unit", p.series))
+              .position(by: .value("Item and unit", p.seriesKey)).foregroundStyle(p.color)
+              .accessibilityLabel("\(p.day), \(p.series)")
             }.chartXScale(domain: days).frame(height: 160)
               .chartXSelection(value: $chartDay)
               .onChange(of: chartDay) { _, d in
@@ -129,6 +131,16 @@ struct HistoryView: View {
                   chartDay = nil
                 }
               }
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack {
+                ForEach(legend(values), id: \.seriesKey) { p in
+                  HStack(spacing: 4) {
+                    Circle().fill(p.color).frame(width: 8, height: 8)
+                    Text(p.series).font(.caption)
+                  }
+                }
+              }
+            }
           }
         }
         if mode == .calendar {
@@ -230,6 +242,10 @@ struct HistoryView: View {
     anchor =
       calendar.date(
         byAdding: mode == .calendar ? .month : .weekOfYear, value: direction, to: anchor) ?? anchor
+  }
+  private func legend(_ points: [Point]) -> [Point] {
+    var seen = Set<String>()
+    return points.filter { seen.insert($0.seriesKey).inserted }
   }
   func medianGap(_ rows: [Record]) -> Double? {
     let times = rows.compactMap { JournalTime.instant($0.text("occurred_at")) }.sorted()

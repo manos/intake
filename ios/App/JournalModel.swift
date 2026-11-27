@@ -18,6 +18,7 @@ import SwiftUI
   @Published private(set) var ready = false
   @Published private(set) var signedIn = false
   @Published private var presence = ServerPresence()
+  var cloudConnected: Bool? { presence.connected(server: state.binding?.key, signedIn: signedIn) }
   var connectionBadge: ServerPresence.Badge? {
     presence.badge(server: state.binding?.key, signedIn: signedIn)
   }

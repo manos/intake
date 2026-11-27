@@ -24,6 +24,12 @@ public struct ServerPresence {
   public mutating func finishedSync(server: String, succeeded: Bool) {
     failedServer = succeeded ? nil : server
   }
+  /// Today displays reachability only. An unresolved edit doesn't mean the
+  /// phone is disconnected, and signing out hides the cloud altogether.
+  public func connected(server: String?, signedIn: Bool) -> Bool? {
+    guard signedIn, let server else { return nil }
+    return !offline && response?.server == server && response?.reachable == true
+  }
   public func badge(server: String?, signedIn: Bool) -> Badge? {
     guard signedIn, let server else { return nil }
     if failedServer == server { return .syncFailed }

@@ -68,8 +68,12 @@ final class JournalTests: XCTestCase {
     let second = a.entry(settings: Settings(timezone: "UTC"), at: time.addingTimeInterval(1))
     try j.put(first)
     try j.put(second)
-    XCTAssertThrowsError(try j.reorderItems([z.id, z.id]))
-    try j.reorderItems([z.id, a.id])
+    let opening = [a.id, z.id]
+    XCTAssertThrowsError(try j.reorderItems([z.id, z.id], replacing: opening))
+    try j.reorderItems([z.id, a.id], replacing: opening)
+    // Closing a second, untouched editor must not restore its stale order.
+    try j.reorderItems(opening, replacing: opening)
+    XCTAssertThrowsError(try j.reorderItems([z.id, a.id], replacing: opening))
     let saved = try Journal(file: url).read()
     let display = JournalDisplay(saved)
     XCTAssertEqual(display.activeItems.map(\.id), [z.id, a.id])
@@ -83,6 +87,8 @@ final class JournalTests: XCTestCase {
     var presence = ServerPresence()
     presence.report(server: "one", generation: presence.generation, reachable: true)
     presence.finishedSync(server: "one", succeeded: false)
+    XCTAssertEqual(presence.connected(server: "one", signedIn: true), true)
+    XCTAssertNil(presence.connected(server: "one", signedIn: false))
     XCTAssertEqual(presence.badge(server: "one", signedIn: true), .syncFailed)
     presence.networkChanged(offline: false)
     presence.report(server: "one", generation: presence.generation, reachable: true)

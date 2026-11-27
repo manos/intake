@@ -59,20 +59,12 @@ func totals(_ summaries: [JournalDisplay.Summary]) -> String {
   summaries.map { "\($0.entry.text("item_name")): \($0.amountText)" }.joined(separator: " · ")
 }
 private struct ConnectionCloud: View {
-  let status: ServerPresence.Badge
-  var description: String {
-    switch status {
-    case .connected: "Connected"
-    case .syncFailed: "Sync failed"
-    case .offline: "Offline"
-    case .checking: "Checking connection"
-    }
-  }
+  let connected: Bool
   var body: some View {
-    Image(systemName: status == .connected ? "icloud.fill" : "icloud.slash")
-      .foregroundStyle(status == .connected ? Color.green : Color.secondary)
+    Image(systemName: connected ? "icloud.fill" : "icloud.slash")
+      .foregroundStyle(connected ? Color.green : Color.secondary)
       .frame(width: 24, height: 24)
-      .accessibilityLabel("Server: \(description)")
+      .accessibilityLabel(connected ? "Server connected" : "Server disconnected")
   }
 }
 struct EntryLine: View {
@@ -199,8 +191,8 @@ struct TodayView: View {
         }
       }
       .toolbar {
-        if let status = m.connectionBadge {
-          ToolbarItem(placement: .topBarTrailing) { ConnectionCloud(status: status) }
+        if let connected = m.cloudConnected {
+          ToolbarItem(placement: .topBarTrailing) { ConnectionCloud(connected: connected) }
         }
       }
       .task(id: successID) {

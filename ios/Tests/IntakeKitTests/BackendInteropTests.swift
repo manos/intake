@@ -33,7 +33,7 @@ final class BackendInteropTests: XCTestCase {
       try source.accept(page)
     }
     try await flush()
-    try source.reorderItems([z.id, a.id])
+    try source.reorderItems([z.id, a.id], replacing: [a.id, z.id])
     try await flush()
     let (remote, cursor) = try await server.snapshot(token: token, account: user.id)
     let second = try Journal()

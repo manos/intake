@@ -6,7 +6,11 @@ private struct ItemOrderEditor: View {
   @EnvironmentObject private var model: JournalModel
   @Environment(\.dismiss) private var dismiss
   @State private var rows: [Record]
-  init(items: [Record]) { _rows = State(initialValue: items) }
+  @State private var openingOrder: [String]
+  init(items: [Record]) {
+    _rows = State(initialValue: items)
+    _openingOrder = State(initialValue: items.map(\.id))
+  }
   var body: some View {
     NavigationStack {
       JournalList {
@@ -25,7 +29,12 @@ private struct ItemOrderEditor: View {
           ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
           ToolbarItem(placement: .confirmationAction) {
             Button("Done") {
-              if model.change({ try $0.reorderItems(rows.map(\.id)) }) { dismiss() }
+              let ids = rows.map(\.id)
+              if ids == openingOrder
+                || model.change({ try $0.reorderItems(ids, replacing: openingOrder) })
+              {
+                dismiss()
+              }
             }
           }
         }
